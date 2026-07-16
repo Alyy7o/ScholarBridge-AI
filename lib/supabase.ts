@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -11,7 +11,7 @@ export function supabaseServer(): SupabaseClient {
   return createServerClient(URL, ANON, {
     cookies: {
       getAll: () => store.getAll(),
-      setAll: (list) => {
+      setAll: (list: { name: string; value: string; options: CookieOptions }[]) => {
         try {
           list.forEach(({ name, value, options }) => store.set(name, value, options));
         } catch {
