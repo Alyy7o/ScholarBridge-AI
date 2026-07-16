@@ -1,0 +1,14 @@
+-- Schedule the process-due edge function every 5 minutes.
+-- Replace <PROJECT_REF> and set the vault secrets first.
+-- Requires: extensions pg_cron + pg_net enabled (Dashboard → Database → Extensions).
+--
+-- select cron.schedule(
+--   'scholarbridge-process-due', '*/5 * * * *',
+--   $$ select net.http_post(
+--        url := 'https://<PROJECT_REF>.functions.supabase.co/process-due',
+--        headers := jsonb_build_object(
+--          'Content-Type','application/json',
+--          'x-cron-secret', current_setting('app.cron_secret', true)
+--        )
+--      ) $$
+-- );
