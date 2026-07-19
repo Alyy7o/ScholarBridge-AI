@@ -5,7 +5,7 @@ const PROF_ALIASES: Record<string, string[]> = {
   name: ["name", "professor", "professor name", "full name", "prof"],
   email: ["email", "e-mail", "email address", "contact"],
   university: ["university", "uni", "lab", "university/lab", "institution", "affiliation", "department", "school"],
-  topics: ["topics", "topic", "research", "research topics", "interests", "research interests", "keywords", "area"],
+  topics: ["topics", "topic", "research", "research topics", "interests", "research interests", "keywords", "area", "field", "fields", "area of research", "areas of research", "research area", "research field", "field of research", "specialization", "specialisation", "expertise", "focus"],
 };
 
 const READY_ALIASES: Record<string, string[]> = {

@@ -7,9 +7,10 @@ export async function POST(req: Request) {
   const { sb, user } = await requireUser();
   if (!user) return err("Unauthorized", 401);
   const { refresh_token, email } = await req.json();
-  const patch: Record<string, unknown> = {};
+  const patch: Record<string, unknown> = { id: user.id, email: user.email };
   if (refresh_token) patch.gmail_refresh_token = refresh_token;
   if (email) patch.gmail_email = email;
-  if (Object.keys(patch).length) await sb.from("profiles").update(patch).eq("id", user.id);
+  // Upsert so a missing profile row is created rather than silently skipped.
+  await sb.from("profiles").upsert(patch, { onConflict: "id" });
   return json({ ok: true, connected: !!refresh_token });
 }

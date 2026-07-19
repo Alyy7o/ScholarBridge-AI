@@ -1,19 +1,30 @@
 /** Gmail sending via the REST API using a stored Google refresh token. */
 
-export async function accessTokenFromRefresh(refreshToken: string): Promise<string | null> {
+export async function accessTokenFromRefresh(
+  refreshToken: string,
+): Promise<{ token: string | null; error?: string }> {
+  const clientId = (process.env.GOOGLE_CLIENT_ID || "").trim();
+  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || "").trim();
+  if (!clientId || !clientSecret) {
+    return { token: null, error: "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not set on the server" };
+  }
   const r = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID || "",
-      client_secret: process.env.GOOGLE_CLIENT_SECRET || "",
+      client_id: clientId,
+      client_secret: clientSecret,
       refresh_token: refreshToken,
       grant_type: "refresh_token",
     }),
   });
-  if (!r.ok) return null;
-  const j = await r.json();
-  return j.access_token ?? null;
+  const j = await r.json().catch(() => ({} as Record<string, string>));
+  if (!r.ok) {
+    // Surface Google's real reason, e.g. invalid_client / invalid_grant.
+    const detail = [j.error, j.error_description].filter(Boolean).join(": ");
+    return { token: null, error: `Google token refresh failed (${r.status}) ${detail}`.trim() };
+  }
+  return { token: j.access_token ?? null };
 }
 
 export interface OutAttachment {
@@ -55,14 +66,14 @@ export async function sendGmail(
   body: string,
   attachments: OutAttachment[] = [],
 ): Promise<{ ok: boolean; info: string }> {
-  const token = await accessTokenFromRefresh(refreshToken);
-  if (!token) return { ok: false, info: "Could not refresh Google token" };
+  const { token, error } = await accessTokenFromRefresh(refreshToken);
+  if (!token) return { ok: false, info: error || "Could not refresh Google token" };
   const raw = buildMime(to, from || "me", subject, body, attachments);
   const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ raw }),
   });
-  if (!r.ok) return { ok: false, info: `Gmail ${r.status}: ${(await r.text()).slice(0, 160)}` };
+  if (!r.ok) return { ok: false, info: `Gmail ${r.status}: ${(await r.text()).slice(0, 200)}` };
   return { ok: true, info: "sent" };
 }

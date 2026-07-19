@@ -21,7 +21,7 @@ async function j(url: string): Promise<any> {
   return r.json();
 }
 
-async function openalex(name: string, university: string, limit: number): Promise<Paper[]> {
+async function openalex(name: string, university: string, limit: number, topics = ""): Promise<Paper[]> {
   const mailto = process.env.OPENALEX_MAILTO || "you@example.com";
   const a = await j(`${OPENALEX}/authors?search=${encodeURIComponent(name)}&per_page=10&mailto=${mailto}`);
   const authors = a.results || [];
@@ -37,15 +37,27 @@ async function openalex(name: string, university: string, limit: number): Promis
   }
   const id = (chosen.id || "").split("/").pop();
   if (!id) return [];
-  const w = await j(`${OPENALEX}/works?filter=authorships.author.id:${id}&sort=publication_date:desc&per_page=${limit}&mailto=${mailto}`);
-  return (w.results || [])
-    .map((x: any): Paper => ({
-      title: (x.title || x.display_name || "").trim(),
-      year: x.publication_year,
-      abstract: reconstructAbstract(x.abstract_inverted_index),
-      source: "openalex",
-    }))
-    .filter((p: Paper) => p.title);
+  const base = `${OPENALEX}/works?filter=authorships.author.id:${id}&per_page=${limit}&mailto=${mailto}`;
+  const toPapers = (arr: any[]): Paper[] =>
+    (arr || [])
+      .map((x: any): Paper => ({
+        title: (x.title || x.display_name || "").trim(),
+        year: x.publication_year,
+        abstract: reconstructAbstract(x.abstract_inverted_index),
+        source: "openalex",
+      }))
+      .filter((p: Paper) => p.title);
+
+  // If topics are given, search the author's works for those topics first;
+  // otherwise (or if nothing matches) fall back to their most recent works.
+  const topic = (topics || "").trim();
+  if (topic) {
+    const wt = await j(`${base}&search=${encodeURIComponent(topic)}`);
+    const matched = toPapers(wt.results || []);
+    if (matched.length) return matched;
+  }
+  const w = await j(`${base}&sort=publication_date:desc`);
+  return toPapers(w.results || []);
 }
 
 async function semanticScholar(name: string, limit: number): Promise<Paper[]> {
@@ -69,9 +81,10 @@ export async function findPapers(
   name: string,
   university = "",
   limit = 4,
+  topics = "",
 ): Promise<{ papers: Paper[]; source: string }> {
   try {
-    const papers = await openalex(name, university, limit);
+    const papers = await openalex(name, university, limit, topics);
     if (papers.length) return { papers, source: "openalex" };
   } catch { /* fall through */ }
   try {

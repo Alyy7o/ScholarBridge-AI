@@ -18,6 +18,10 @@ function b64url(bytes: Uint8Array): string {
 }
 
 async function accessToken(refresh: string): Promise<string | null> {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    console.error("token refresh: GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not set on the function");
+    return null;
+  }
   const r = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -26,7 +30,11 @@ async function accessToken(refresh: string): Promise<string | null> {
       refresh_token: refresh, grant_type: "refresh_token",
     }),
   });
-  if (!r.ok) return null;
+  if (!r.ok) {
+    const body = await r.text();
+    console.error("token refresh failed:", r.status, body.slice(0, 300));
+    return null;
+  }
   return (await r.json()).access_token ?? null;
 }
 

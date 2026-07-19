@@ -10,9 +10,15 @@ export async function GET(req: Request) {
     const s = data.session;
     if (s?.user) {
       // Capture the Gmail refresh token so the cron can send later.
-      const patch: Record<string, unknown> = { gmail_email: s.user.email };
+      // Upsert (not update) so it self-heals if the signup trigger never
+      // created the profile row — otherwise the token would silently not save.
+      const patch: Record<string, unknown> = {
+        id: s.user.id,
+        email: s.user.email,
+        gmail_email: s.user.email,
+      };
       if (s.provider_refresh_token) patch.gmail_refresh_token = s.provider_refresh_token;
-      await sb.from("profiles").update(patch).eq("id", s.user.id);
+      await sb.from("profiles").upsert(patch, { onConflict: "id" });
     }
   }
   return NextResponse.redirect(new URL("/", url.origin));

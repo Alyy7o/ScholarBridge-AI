@@ -16,6 +16,7 @@ export async function POST(req: Request) {
   const templateId = String(form.get("template_id") || "");
   let template = String(form.get("template") || "").trim();
   let subject = String(form.get("subject") || "").trim();
+  const searchTopics = String(form.get("search_topics") || "").trim();
 
   let profs: Professor[] = [];
   if (file) {
@@ -45,8 +46,11 @@ export async function POST(req: Request) {
 
   const emails = await Promise.all(
     profs.map(async (p) => {
-      const { papers, source } = await findPapers(p.name, p.university || "", 4);
-      const lines = await personalize(p.name, p.university || "", p.topics || "", papers);
+      // Topics to steer the paper search: the explicit search field wins, else
+      // the professor's own topics (e.g. the Excel "field"/"area" column).
+      const topicsForSearch = searchTopics || p.topics || "";
+      const { papers, source } = await findPapers(p.name, p.university || "", 4, topicsForSearch);
+      const lines = await personalize(p.name, p.university || "", p.topics || searchTopics || "", papers);
       const { subject: subj, body } = renderTemplate(template, subject, p, lines, senderName);
       return {
         professor_name: p.name, email: p.email, university: p.university || "",

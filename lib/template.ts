@@ -5,7 +5,7 @@ export const DEFAULT_SUBJECT =
 
 export const DEFAULT_TEMPLATE = `Dear Professor {{professor_last_name}},
 
-I am writing to express my strong interest in joining your research group at {{university}}. {{personalized}}
+{{personalized}}
 
 I have attached my CV for your consideration and would be grateful for the chance to discuss potential opportunities to work with you.
 
