@@ -40,15 +40,36 @@ function b64url(bytes: Uint8Array): string {
   return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+function asciiClean(str: string): string {
+  return (str || "")
+    .replace(/[\u2014\u2013]/g, "-")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\u2026/g, "...")
+    .replace(/\u00A0/g, " ")
+    .replace(/\u00E2\u20AC\u201D/g, "-")
+    .replace(/\u00E2\u20AC\u2122/g, "'")
+    .replace(/\u00E2\u20AC\u0153/g, '"')
+    .replace(/\u00E2\u20AC\u009D/g, '"');
+}
+function toHtml(text: string): string {
+  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const paras = asciiClean(text)
+    .split(/\n{2,}/)
+    .map((p) => `<p style="margin:0 0 14px">${esc(p).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a">${paras}</div>`;
+}
+
 function buildMime(to: string, from: string, subject: string, body: string, attachments: OutAttachment[]): string {
   const boundary = "sb_" + Math.random().toString(36).slice(2);
   const enc = new TextEncoder();
   const parts: number[] = [];
   const push = (s: string) => enc.encode(s).forEach((b) => parts.push(b));
 
-  push(`To: ${to}\r\nFrom: ${from}\r\nSubject: ${subject}\r\n`);
+  push(`To: ${to}\r\nFrom: ${from}\r\nSubject: ${asciiClean(subject)}\r\n`);
   push(`MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n`);
-  push(`--${boundary}\r\nContent-Type: text/plain; charset="UTF-8"\r\n\r\n${body}\r\n`);
+  push(`--${boundary}\r\nContent-Type: text/html; charset="UTF-8"\r\n\r\n${toHtml(body)}\r\n`);
   for (const a of attachments) {
     push(`--${boundary}\r\nContent-Type: ${a.mime || "application/octet-stream"}; name="${a.filename}"\r\n`);
     push(`Content-Disposition: attachment; filename="${a.filename}"\r\nContent-Transfer-Encoding: base64\r\n\r\n`);
