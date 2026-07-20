@@ -32,6 +32,37 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
   );
 }
 
+const looksHtml = (s: string) => /<(?:b|strong|i|em|u|p|br|ul|ol|li|a|div|span)\b[^>]*>/i.test(s || "");
+// Seed the editor: plain text -> keep line breaks; HTML -> use as-is.
+const seedHtml = (s: string) =>
+  looksHtml(s) ? s : (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+
+/** Minimal rich-text editor (bold / italic / underline / list) built on the
+ *  browser's editing commands — no external dependency. Emits sanitized-ready HTML. */
+function RichText({ value, onChange }: { value: string; onChange: (html: string) => void }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { if (ref.current) ref.current.innerHTML = seedHtml(value); /* seed once */ }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const emit = () => onChange(ref.current?.innerHTML || "");
+  const cmd = (c: string, val?: string) => { ref.current?.focus(); document.execCommand(c, false, val); emit(); };
+  const link = () => { const u = prompt("Link URL (https://…)"); if (u) cmd("createLink", u); };
+  const keep = (e: React.MouseEvent) => e.preventDefault(); // don't lose the selection on button click
+  return (
+    <div className="rte">
+      <div className="rte-bar">
+        <button type="button" title="Bold" onMouseDown={keep} onClick={() => cmd("bold")}><b>B</b></button>
+        <button type="button" title="Italic" onMouseDown={keep} onClick={() => cmd("italic")}><i>I</i></button>
+        <button type="button" title="Underline" onMouseDown={keep} onClick={() => cmd("underline")}><u>U</u></button>
+        <span className="rte-sep" />
+        <button type="button" title="Bulleted list" onMouseDown={keep} onClick={() => cmd("insertUnorderedList")}>• List</button>
+        <button type="button" title="Add link" onMouseDown={keep} onClick={link}>Link</button>
+        <span className="rte-sep" />
+        <button type="button" title="Clear formatting" onMouseDown={keep} onClick={() => { cmd("removeFormat"); cmd("unlink"); }}>Clear</button>
+      </div>
+      <div className="rte-area" ref={ref} contentEditable suppressContentEditableWarning onInput={emit} />
+    </div>
+  );
+}
+
 function FileDrop({ file, onFile, accept, hint }: { file: File | null; onFile: (f: File | null) => void; accept?: string; hint?: string }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [drag, setDrag] = useState(false);
@@ -343,6 +374,11 @@ function Compose({ toast, go }: any) {
   const toggleDate = (k: string) => setDates((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const [pickAtt, setPickAtt] = useState<string[]>([]);
   const [file, setFile] = useState<File | null>(null);
+  const [editIdx, setEditIdx] = useState<number | null>(null);
+  const [menuIdx, setMenuIdx] = useState<number | null>(null);
+
+  const patchEmail = (i: number, patch: any) => setPreview((p) => p.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
+  const removeEmail = (i: number) => { setPreview((p) => p.filter((_, idx) => idx !== i)); setEditIdx(null); };
 
   useEffect(() => { api("/api/templates").then(setTpls); api("/api/professors").then(setProfs); api("/api/attachments").then(setAtts); }, []);
 
@@ -439,10 +475,42 @@ function Compose({ toast, go }: any) {
             <div className="row" style={{ justifyContent: "space-between" }}><b>{preview.length} email(s) ready</b><button className="btn sm sec" onClick={() => setPreview([])}>Clear</button></div>
             {preview.map((e, i) => (
               <div className="emailrow" key={i}>
-                <div className="row" style={{ justifyContent: "space-between" }}><b>{e.professor_name || e.email}</b><span className="mut">{e.email}</span>{e.research_source && <span className="pill draft">{e.research_source}</span>}</div>
+                <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <b>{e.professor_name || e.email || "(no recipient)"}</b>
+                  <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                    {e.research_source && <span className="pill draft">{e.research_source}</span>}
+                    {editIdx === i && <button className="btn sm" onClick={() => setEditIdx(null)}>Done</button>}
+                    <div style={{ position: "relative" }}>
+                      <button className="kebab" aria-label="More actions" onClick={() => setMenuIdx(menuIdx === i ? null : i)}>⋮</button>
+                      {menuIdx === i && (
+                        <>
+                          <div className="menu-backdrop" onClick={() => setMenuIdx(null)} />
+                          <div className="menu">
+                            <button onClick={() => { setEditIdx(i); setMenuIdx(null); }}>Edit</button>
+                            <button className="danger" onClick={() => { removeEmail(i); setMenuIdx(null); }}>Delete</button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
                 {e.papers_used?.length ? <div className="tiny mut" style={{ marginTop: 4 }}>Papers: {e.papers_used.join(" · ")}</div> : null}
-                <div style={{ marginTop: 6 }}><b>Subject:</b> {e.subject}</div>
-                <pre>{e.body}</pre>
+                {editIdx === i ? (
+                  <div style={{ marginTop: 8 }}>
+                    <label>Recipient email</label>
+                    <input value={e.email || ""} onChange={(ev) => patchEmail(i, { email: ev.target.value })} placeholder="prof@uni.edu" />
+                    <label style={{ marginTop: 10 }}>Subject</label>
+                    <input value={e.subject || ""} onChange={(ev) => patchEmail(i, { subject: ev.target.value })} />
+                    <label style={{ marginTop: 10 }}>Body</label>
+                    <RichText value={e.body || ""} onChange={(html) => patchEmail(i, { body: html })} />
+                  </div>
+                ) : (
+                  <>
+                    <div className="mut tiny" style={{ marginTop: 4 }}>{e.email}</div>
+                    <div style={{ marginTop: 6 }}><b>Subject:</b> {e.subject}</div>
+                    {looksHtml(e.body) ? <div className="email-html" dangerouslySetInnerHTML={{ __html: e.body }} /> : <pre>{e.body}</pre>}
+                  </>
+                )}
               </div>
             ))}
           </div>

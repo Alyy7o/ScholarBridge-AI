@@ -43,7 +43,24 @@ td{padding:10px 8px;border-bottom:1px solid var(--line);font-size:13px;vertical-
 .mut{color:var(--mut);font-size:12px}.tiny{font-size:11px}
 .loader{display:flex;align-items:center;justify-content:center;gap:12px;color:var(--mut);font-size:13px;padding:40px 4px}
 .spinner{width:18px;height:18px;border-radius:50%;border:2.5px solid var(--line);border-top-color:var(--acc);display:inline-block;animation:sbspin .7s linear infinite;flex:0 0 auto}
-.loader.page{justify-content:center;padding:60px 0}.loader.page .spinner{width:26px;height:26px;border-width:3px}
+.loader.page{justify-content:center;align-items:center;padding:0;min-height:60vh}.loader.page .spinner{width:26px;height:26px;border-width:3px}
+.kebab{background:none;border:1px solid var(--line);border-radius:8px;width:30px;height:30px;cursor:pointer;color:var(--mut);font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0}
+.kebab:hover{background:var(--field);color:var(--ink)}
+.menu-backdrop{position:fixed;inset:0;z-index:40}
+.menu{position:absolute;right:0;top:36px;z-index:50;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.22);padding:6px;min-width:140px;display:flex;flex-direction:column;gap:2px}
+.menu button{display:block;width:100%;text-align:left;background:none;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--ink)}
+.menu button:hover{background:var(--field)}
+.menu button.danger{color:var(--bad)}
+.rte{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--field)}
+.rte-bar{display:flex;align-items:center;gap:4px;padding:6px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+.rte-bar button{min-width:30px;height:28px;padding:0 8px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink);cursor:pointer;font-size:13px;line-height:1}
+.rte-bar button:hover{background:var(--field)}
+.rte-sep{width:1px;height:18px;background:var(--line);margin:0 2px}
+.rte-area{min-height:180px;max-height:420px;overflow:auto;padding:12px 14px;font-size:14px;line-height:1.6;color:var(--ink);outline:none}
+.rte-area:empty:before{content:"Write the email…";color:var(--mut)}
+.rte-area ul{margin:0 0 10px;padding-left:22px}
+.email-html{margin-top:6px;font-size:14px;line-height:1.6;color:var(--ink)}
+.email-html p{margin:0 0 10px}.email-html ul{padding-left:22px;margin:0 0 10px}
 @keyframes sbspin{to{transform:rotate(360deg)}}
 .emailrow{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:var(--field)}
 pre{white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.5;margin:8px 0 0;color:var(--ink)}

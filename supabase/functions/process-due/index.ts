@@ -50,13 +50,38 @@ function asciiClean(str: string): string {
     .replace(/\u00E2\u20AC\u0153/g, '"')
     .replace(/\u00E2\u20AC\u009D/g, '"');
 }
+const WRAP = 'font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a';
+function looksHtml(s: string): boolean {
+  return /<(?:b|strong|i|em|u|p|br|ul|ol|li|a|div|span)\b[^>]*>/i.test(s || "");
+}
+function sanitizeHtml(s: string): string {
+  const allowed = new Set(["b", "strong", "i", "em", "u", "p", "br", "ul", "ol", "li", "a", "div", "span"]);
+  let x = asciiClean(s || "");
+  x = x.replace(/<!--[\s\S]*?-->/g, "");
+  x = x.replace(/<(script|style)[\s\S]*?<\/\1>/gi, "");
+  x = x.replace(/<(\/?)([a-zA-Z0-9]+)([^>]*)>/g, (_m, slash, tag, attrs) => {
+    const t = String(tag).toLowerCase();
+    if (!allowed.has(t)) return "";
+    if (slash) return `</${t}>`;
+    if (t === "a") {
+      const m = String(attrs).match(/href\s*=\s*"(https?:\/\/[^"]*|mailto:[^"]*)"/i);
+      return m ? `<a href="${m[1]}" target="_blank" rel="noopener">` : "<a>";
+    }
+    return `<${t}>`;
+  });
+  return x;
+}
 function toHtml(text: string): string {
   const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const paras = asciiClean(text)
     .split(/\n{2,}/)
     .map((p) => `<p style="margin:0 0 14px">${esc(p).replace(/\n/g, "<br>")}</p>`)
     .join("");
-  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a">${paras}</div>`;
+  return `<div style="${WRAP}">${paras}</div>`;
+}
+function renderBody(body: string): string {
+  if (looksHtml(body)) return `<div style="${WRAP}">${sanitizeHtml(body)}</div>`;
+  return toHtml(body);
 }
 
 async function buildRaw(to: string, from: string, subject: string, body: string,
@@ -67,7 +92,7 @@ async function buildRaw(to: string, from: string, subject: string, body: string,
   const push = (s: string) => chunks.push(enc.encode(s));
   push(`To: ${to}\r\nFrom: ${from}\r\nSubject: ${asciiClean(subject)}\r\nMIME-Version: 1.0\r\n`);
   push(`Content-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n`);
-  push(`--${boundary}\r\nContent-Type: text/html; charset="UTF-8"\r\n\r\n${toHtml(body)}\r\n`);
+  push(`--${boundary}\r\nContent-Type: text/html; charset="UTF-8"\r\n\r\n${renderBody(body)}\r\n`);
   for (const a of atts) {
     push(`--${boundary}\r\nContent-Type: ${a.mime}; name="${a.filename}"\r\n`);
     push(`Content-Disposition: attachment; filename="${a.filename}"\r\nContent-Transfer-Encoding: base64\r\n\r\n`);
