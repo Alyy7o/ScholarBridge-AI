@@ -951,7 +951,16 @@ function EmailHarvest({ toast }: any) {
     return () => clearInterval(t);
   }, [d?.active]);
   const toggle = async () => {
-    await api("/api/admin/harvest/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: !d?.active }) });
+    const next = !d?.active;
+    setD((p: any) => (p ? { ...p, active: next } : p)); // optimistic
+    try {
+      const r = await api("/api/admin/harvest/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: next }) });
+      setD((p: any) => (p ? { ...p, active: !!r.active } : p)); // trust server
+      toast(r.active ? "Background crawl on" : "Background crawl paused");
+    } catch (e: any) {
+      setD((p: any) => (p ? { ...p, active: !next } : p)); // revert
+      toast(e.message || "Could not change crawl state");
+    }
     load();
   };
   const runOne = async () => {
