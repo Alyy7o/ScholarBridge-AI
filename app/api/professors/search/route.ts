@@ -10,7 +10,7 @@ export async function POST(req: Request) {
   if (!user) return err("Unauthorized", 401);
   const b = await req.json().catch(() => ({}));
   try {
-    const { results, total } = await searchAuthors({
+    const { results, total, debug } = await searchAuthors({
       country: String(b.country || "").trim() || undefined,
       institutionId: String(b.institutionId || "").trim() || undefined,
       conceptId: String(b.conceptId || "").trim() || undefined,
@@ -18,7 +18,7 @@ export async function POST(req: Request) {
       query: String(b.query || "").trim() || undefined,
       page: Number(b.page) || 1,
     });
-    return json({ results, total });
+    return json({ results, total, debug });
   } catch (e) {
     return err((e as Error).message || "Search failed", 502);
   }

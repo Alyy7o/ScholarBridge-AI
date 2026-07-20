@@ -1,6 +1,6 @@
-import { requireUser } from "@/lib/supabase";
+import { requireUser, supabaseAdmin } from "@/lib/supabase";
 import { json, err } from "@/lib/http";
-import { findAuthorEmail } from "@/lib/discover";
+import { harvestForAuthor } from "@/lib/harvest";
 
 export const maxDuration = 60;
 
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
     let email: string | null = null;
     if (p.openalex_id) {
       try {
-        const r = await findAuthorEmail(p.openalex_id, name);
+        const r = await harvestForAuthor(supabaseAdmin(), p.openalex_id, name);
         email = r.email;
       } catch {
         email = null;

@@ -31,18 +31,37 @@ export type AuthorHit = {
 
 export type AutocompleteItem = { id: string; label: string; hint?: string };
 
-/** Autocomplete institutions or research fields (concepts) for the filter UI. */
+/** Autocomplete institutions or research fields (topics) for the filter UI. */
 export async function autocomplete(
   type: "institutions" | "concepts",
   q: string,
 ): Promise<AutocompleteItem[]> {
   if (!q.trim()) return [];
-  const data = await oaJson(oaUrl(`/autocomplete/${type}`, { q }));
+  // "concepts" is deprecated in OpenAlex; research fields now come from topics.
+  const path = type === "concepts" ? "topics" : type;
+  const data = await oaJson(oaUrl(`/autocomplete/${path}`, { q }));
   return (data.results || []).slice(0, 8).map((r: any) => ({
     id: String(r.id || "").split("/").pop() || "",
     label: r.display_name || "",
     hint: r.hint || "",
   }));
+}
+
+/** Top universities in a country (for the country -> university dropdown). */
+export async function listCountryInstitutions(country: string): Promise<AutocompleteItem[]> {
+  const cc = (country || "").toLowerCase();
+  if (!cc) return [];
+  const data = await oaJson(
+    oaUrl("/institutions", {
+      filter: `country_code:${cc},type:education`,
+      sort: "works_count:desc",
+      per_page: "200",
+      select: "id,display_name",
+    }),
+  );
+  return (data.results || [])
+    .map((r: any) => ({ id: String(r.id || "").split("/").pop() || "", label: r.display_name || "" }))
+    .filter((x: AutocompleteItem) => x.id && x.label);
 }
 
 export type SearchFilters = {
@@ -55,28 +74,8 @@ export type SearchFilters = {
   perPage?: number;
 };
 
-/** Search professors/researchers by country, university and field. */
-export async function searchAuthors(f: SearchFilters): Promise<{ results: AuthorHit[]; total: number }> {
-  const filters: string[] = [];
-  // A specific institution filters by ANY affiliation (broad). Only fall back to
-  // a country filter when no institution is chosen — AND-ing both, plus concept,
-  // plus has_orcid used to over-narrow searches down to zero results.
-  if (f.institutionId) filters.push(`affiliations.institution.id:${f.institutionId}`);
-  else if (f.country) filters.push(`last_known_institutions.country_code:${f.country.toLowerCase()}`);
-  const conceptIds = (f.conceptIds && f.conceptIds.length ? f.conceptIds : f.conceptId ? [f.conceptId] : []).filter(Boolean);
-  if (conceptIds.length) filters.push(`x_concepts.id:${conceptIds.join("|")}`);
-
-  const params: Record<string, string> = {
-    sort: "cited_by_count:desc",
-    per_page: String(Math.min(f.perPage || 25, 50)),
-    page: String(f.page || 1),
-  };
-  if (filters.length) params.filter = filters.join(",");
-  if (f.query && f.query.trim()) params.search = f.query.trim();
-  if (!params.filter && !params.search) return { results: [], total: 0 };
-
-  const data = await oaJson(oaUrl("/authors", params));
-  const results: AuthorHit[] = (data.results || []).map((a: any): AuthorHit => {
+function toHits(arr: any[]): AuthorHit[] {
+  return (arr || []).map((a: any): AuthorHit => {
     const inst = (a.last_known_institutions || [])[0] || a.last_known_institution || {};
     return {
       openalex_id: String(a.id || "").split("/").pop() || "",
@@ -84,12 +83,89 @@ export async function searchAuthors(f: SearchFilters): Promise<{ results: Author
       orcid: a.orcid ? String(a.orcid).split("/").pop() || a.orcid : null,
       institution: inst.display_name || "",
       country: inst.country_code || "",
-      topics: (a.x_concepts || []).slice(0, 5).map((c: any) => c.display_name).filter(Boolean).join(", "),
+      topics: ((a.topics && a.topics.length ? a.topics : a.x_concepts) || []).slice(0, 5).map((c: any) => c.display_name).filter(Boolean).join(", "),
       works_count: a.works_count || 0,
       cited_by_count: a.cited_by_count || 0,
     };
   });
-  return { results, total: data.meta?.count || results.length };
+}
+
+/** Search professors/researchers by country, university and field. */
+export async function searchAuthors(f: SearchFilters): Promise<{ results: AuthorHit[]; total: number; debug: { filter: string; search: string } }> {
+  const conceptIds = (f.conceptIds && f.conceptIds.length ? f.conceptIds : f.conceptId ? [f.conceptId] : []).filter(Boolean);
+  const country = (f.country || "").toLowerCase();
+
+  // When a university and/or field is chosen, resolve people via the WORKS index
+  // (works are reliably tagged with institution AND topic) then pull the distinct
+  // authors. Filtering authors directly on topics.id is too sparse — a professor
+  // at a small school on a niche topic often has no matching author-level topic,
+  // so the intersection comes back empty even though their papers match.
+  if (f.institutionId || conceptIds.length) {
+    const wf: string[] = [];
+    if (f.institutionId) wf.push(`authorships.institutions.id:${f.institutionId}`);
+    else if (country) wf.push(`authorships.institutions.country_code:${country}`);
+    if (conceptIds.length) wf.push(`topics.id:${conceptIds.join("|")}`);
+    // Only recent papers, so results are people CURRENTLY at the institution
+    // rather than alumni who published there years ago and have since moved.
+    const since = new Date();
+    since.setFullYear(since.getFullYear() - 5);
+    wf.push(`from_publication_date:${since.toISOString().slice(0, 10)}`);
+    const wparams: Record<string, string> = {
+      filter: wf.join(","),
+      sort: "cited_by_count:desc",
+      per_page: "120",
+      select: "authorships,cited_by_count",
+    };
+    if (f.query && f.query.trim()) wparams.search = f.query.trim();
+    const works = await oaJson(oaUrl("/works", wparams));
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    // Remember the institution that actually MATCHED the filter for each author,
+    // so the row shows that university/country (not their possibly-different
+    // current last-known institution).
+    const matched: Record<string, { institution: string; country: string }> = {};
+    for (const w of works.results || []) {
+      for (const au of w.authorships || []) {
+        const insts = au.institutions || [];
+        const hit = f.institutionId
+          ? insts.find((i: any) => String(i.id || "").split("/").pop() === f.institutionId)
+          : country
+            ? insts.find((i: any) => String(i.country_code || "").toLowerCase() === country)
+            : insts[0];
+        if (!hit) continue;
+        const aid = String(au.author?.id || "").split("/").pop() || "";
+        if (!aid || seen.has(aid)) continue;
+        seen.add(aid);
+        ids.push(aid);
+        matched[aid] = { institution: hit.display_name || "", country: hit.country_code || "" };
+      }
+      if (ids.length >= 40) break;
+    }
+    if (!ids.length) return { results: [], total: 0, debug: { filter: wparams.filter, search: wparams.search || "" } };
+    const ad = await oaJson(oaUrl("/authors", { filter: `ids.openalex:${ids.slice(0, 40).join("|")}`, per_page: "40" }));
+    const results = toHits(ad.results || [])
+      .map((h) => {
+        const m = matched[h.openalex_id];
+        return m ? { ...h, institution: m.institution || h.institution, country: m.country || h.country } : h;
+      })
+      .sort((a, b) => b.cited_by_count - a.cited_by_count);
+    return { results, total: results.length, debug: { filter: wparams.filter, search: wparams.search || "" } };
+  }
+
+  // Country-only and/or name search: the authors index handles this well.
+  const params: Record<string, string> = {
+    sort: "cited_by_count:desc",
+    per_page: String(Math.min(f.perPage || 25, 50)),
+    page: String(f.page || 1),
+  };
+  const filters: string[] = [];
+  if (country) filters.push(`last_known_institutions.country_code:${country}`);
+  if (filters.length) params.filter = filters.join(",");
+  if (f.query && f.query.trim()) params.search = f.query.trim();
+  if (!params.filter && !params.search) return { results: [], total: 0, debug: { filter: "", search: "" } };
+  const data = await oaJson(oaUrl("/authors", params));
+  const results = toHits(data.results || []);
+  return { results, total: data.meta?.count || results.length, debug: { filter: params.filter || "", search: params.search || "" } };
 }
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;

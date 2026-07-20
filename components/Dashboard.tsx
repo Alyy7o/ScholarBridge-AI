@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 async function api(path: string, opts: RequestInit = {}) {
@@ -115,7 +115,7 @@ function EmailTester({ toast }: any) {
 
 const SECTIONS: [string, string, string][] = [
   ["dashboard", "Dashboard", "▨"], ["compose", "Compose", "✎"], ["professors", "Professors", "👤"], ["find", "Find Professors", "🔎"],
-  ["templates", "Templates", "▤"], ["attachments", "Attachments", "📎"], ["history", "Schedule & History", "🗓"], ["settings", "Settings", "⚙"],
+  ["templates", "Templates", "▤"], ["attachments", "Attachments", "📎"], ["history", "Schedule & History", "🗓"], ["emails", "Email cache", "📇"], ["settings", "Settings", "⚙"],
 ];
 
 export default function Dashboard() {
@@ -148,7 +148,7 @@ export default function Dashboard() {
   const props = { toast: showToast, setFoot, go: setSection };
   const Body = {
     dashboard: DashboardHome, compose: Compose, professors: Professors, find: FindProfessors,
-    templates: Templates, attachments: Attachments, history: History, settings: Settings,
+    templates: Templates, attachments: Attachments, history: History, emails: EmailHarvest, settings: Settings,
   }[section] as React.FC<any>;
 
   return (
@@ -633,16 +633,30 @@ function RowMenu({ items }: { items: Array<{ label: string; onClick: () => void;
 function History({ toast }: any) {
   const [f, setF] = useState("all"); const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [filterOpen, setFilterOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const PER = 20;
   const load = useCallback(() => api("/api/emails?status=" + f).then((x) => { setList(x); setLoading(false); setSel(new Set()); }), [f]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [f, query]);
+  const refresh = async () => { setRefreshing(true); try { await load(); } finally { setRefreshing(false); } };
   const act = async (id: string, a: string) => { await api(`/api/emails/${id}/${a}`, { method: "POST" }); toast(a); load(); };
   const del = async (id: string) => { await api("/api/emails/" + id, { method: "DELETE" }); load(); };
   const allAct = async (a: string) => { if (!confirm(`${a === "pause" ? "Pause" : "Resume"} ALL emails?`)) return; const r = await api(`/api/schedule/${a}-all`, { method: "POST" }); toast(`${a}: ${r.updated}`); load(); };
   const proc = async () => { if (!confirm("Process all due emails now? This sends every email whose scheduled time has passed.")) return; const r = await api("/api/process-due", { method: "POST" }); toast(`Processed ${r.processed} · sent ${r.sent}`); load(); };
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((e) => `${e.professor_name || ""} ${e.email || ""} ${e.subject || ""}`.toLowerCase().includes(q));
+  }, [list, query]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PER));
+  const pageC = Math.min(page, pageCount);
+  const paged = filtered.slice((pageC - 1) * PER, pageC * PER);
   const toggle = (id: string) => setSel((sx) => { const n = new Set(sx); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const toggleAll = () => setSel((sx) => (sx.size === list.length ? new Set() : new Set(list.map((e) => e.id))));
+  const toggleAll = () => setSel((sx) => { const ids = paged.map((e) => e.id); const on = ids.length > 0 && ids.every((id) => sx.has(id)); const n = new Set(sx); ids.forEach((id) => (on ? n.delete(id) : n.add(id))); return n; });
   const bulk = async (a: string) => {
     const ids = [...sel];
     if (!ids.length) return;
@@ -652,7 +666,7 @@ function History({ toast }: any) {
     }
     toast(`${a}: ${ids.length}`); setSel(new Set()); load();
   };
-  const allChecked = list.length > 0 && sel.size === list.length;
+  const allChecked = paged.length > 0 && paged.every((e) => sel.has(e.id));
   return (
     <>
       <h1>Schedule &amp; History</h1><p className="lead">Every drafted, scheduled, sent and failed email — with full control.</p>
@@ -660,21 +674,27 @@ function History({ toast }: any) {
         <button className="btn sm sec" onClick={() => allAct("pause")}>Pause all</button>
         <button className="btn sm sec" onClick={() => allAct("resume")}>Resume all</button>
         <button className="btn sm" onClick={proc}>Process due now</button>
-        <div style={{ position: "relative", marginLeft: "auto" }}>
-          <button className="btn sm sec" style={{ display: "inline-flex", alignItems: "center", gap: 7 }} onClick={() => setFilterOpen((o) => !o)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></svg>
-            <span style={{ textTransform: "capitalize" }}>{f}</span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search recipient or subject" style={{ maxWidth: 220, height: 34, padding: "7px 12px" }} />
+          <button className="btn sm sec" title="Refresh" aria-label="Refresh" onClick={refresh} style={{ display: "inline-flex", alignItems: "center", padding: "7px 10px" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: refreshing ? "sbspin .7s linear infinite" : undefined }}><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /><path d="M3 21v-5h5" /></svg>
           </button>
-          {filterOpen && (
-            <>
-              <button type="button" aria-hidden className="tpf-backdrop" onClick={() => setFilterOpen(false)} />
-              <div style={{ position: "absolute", right: 0, top: "100%", marginTop: 4, zIndex: 30, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 8, minWidth: 150, boxShadow: "0 12px 30px rgba(0,0,0,.4)", overflow: "hidden" }}>
-                {["all", "scheduled", "paused", "sent", "failed", "draft", "cancelled"].map((sopt) => (
-                  <button key={sopt} type="button" onClick={() => { setF(sopt); setFilterOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 13px", background: sopt === f ? "var(--field)" : "transparent", border: "none", color: "var(--ink)", fontSize: 13, fontWeight: 700, textTransform: "capitalize", cursor: "pointer" }}>{sopt}</button>
-                ))}
-              </div>
-            </>
-          )}
+          <div style={{ position: "relative" }}>
+            <button className="btn sm sec" style={{ display: "inline-flex", alignItems: "center", gap: 7 }} onClick={() => setFilterOpen((o) => !o)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></svg>
+              <span style={{ textTransform: "capitalize" }}>{f}</span>
+            </button>
+            {filterOpen && (
+              <>
+                <button type="button" aria-hidden className="tpf-backdrop" onClick={() => setFilterOpen(false)} />
+                <div style={{ position: "absolute", right: 0, top: "100%", marginTop: 4, zIndex: 30, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 8, minWidth: 150, boxShadow: "0 12px 30px rgba(0,0,0,.4)", overflow: "hidden" }}>
+                  {["all", "scheduled", "paused", "sent", "failed", "draft", "cancelled"].map((sopt) => (
+                    <button key={sopt} type="button" onClick={() => { setF(sopt); setFilterOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 13px", background: sopt === f ? "var(--field)" : "transparent", border: "none", color: "var(--ink)", fontSize: 13, fontWeight: 700, textTransform: "capitalize", cursor: "pointer" }}>{sopt}</button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
       {sel.size > 0 && (
@@ -688,9 +708,10 @@ function History({ toast }: any) {
           <button className="btn sm sec" onClick={() => setSel(new Set())}>Clear</button>
         </div>
       )}
-      <div className="card">{loading ? <Loader /> : list.length ? (
+      <div className="card">{loading ? <Loader /> : filtered.length ? (
+        <>
         <table><thead><tr><th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th><th>When</th><th>Recipient</th><th>Subject</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-          {list.map((e) => {
+          {paged.map((e) => {
             const items: Array<{ label: string; onClick: () => void; danger?: boolean }> = [];
             if (e.status === "scheduled") items.push({ label: "Pause", onClick: () => act(e.id, "pause") });
             if (e.status === "paused") items.push({ label: "Resume", onClick: () => act(e.id, "resume") });
@@ -706,7 +727,16 @@ function History({ toast }: any) {
               <td><RowMenu items={items} /></td>
             </tr>);
           })}
-        </tbody></table>) : <div className="mut">Nothing here.</div>}</div>
+        </tbody></table>
+        {pageCount > 1 && (
+          <div className="row" style={{ justifyContent: "center", marginTop: 14, gap: 10 }}>
+            <button className="btn sm sec" disabled={pageC <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>&larr; Prev</button>
+            <span className="mut">Page {pageC} of {pageCount} · {filtered.length} total</span>
+            <button className="btn sm sec" disabled={pageC >= pageCount} onClick={() => setPage((p) => Math.min(pageCount, p + 1))}>Next &rarr;</button>
+          </div>
+        )}
+        </>
+      ) : <div className="mut">{query ? "No emails match your search." : "Nothing here."}</div>}</div>
     </>
   );
 }
@@ -757,6 +787,8 @@ function Picker({ type, value = "", onPick, placeholder, clearOnPick = false }: 
 function FindProfessors({ toast }: any) {
   const [country, setCountry] = useState("");
   const [inst, setInst] = useState({ id: "", label: "" });
+  const [countryUnis, setCountryUnis] = useState<Array<{ id: string; label: string }>>([]);
+  const [uniLoading, setUniLoading] = useState(false);
   const [concepts, setConcepts] = useState<Array<{ id: string; label: string }>>([]);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<any[]>([]);
@@ -765,8 +797,21 @@ function FindProfessors({ toast }: any) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [sel, setSel] = useState<Record<string, any>>({});
+  const [emails, setEmails] = useState<Record<string, { loading?: boolean; email?: string | null }>>({});
   const [adding, setAdding] = useState(false);
   const [needsEmail, setNeedsEmail] = useState<any[]>([]);
+
+  useEffect(() => {
+    setInst({ id: "", label: "" });
+    if (!country) { setCountryUnis([]); return; }
+    let alive = true;
+    setUniLoading(true);
+    api(`/api/openalex/institutions?country=${country}`)
+      .then((j) => { if (alive) setCountryUnis(j.results || []); })
+      .catch(() => { if (alive) setCountryUnis([]); })
+      .finally(() => { if (alive) setUniLoading(false); });
+    return () => { alive = false; };
+  }, [country]);
 
   const search = async (p = 1) => {
     if (!country && !inst.id && !concepts.length && !query.trim()) { setStatus("Pick at least one filter"); return; }
@@ -778,6 +823,15 @@ function FindProfessors({ toast }: any) {
     setBusy(false);
   };
   const toggle = (r: any) => setSel((s) => { const n = { ...s }; if (n[r.openalex_id]) delete n[r.openalex_id]; else n[r.openalex_id] = r; return n; });
+  const findEmail = async (r: any) => {
+    setEmails((m) => ({ ...m, [r.openalex_id]: { loading: true } }));
+    try {
+      const j = await api("/api/professors/find-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ openalex_id: r.openalex_id, name: r.name }) });
+      setEmails((m) => ({ ...m, [r.openalex_id]: { loading: false, email: j.email || null } }));
+    } catch {
+      setEmails((m) => ({ ...m, [r.openalex_id]: { loading: false, email: null } }));
+    }
+  };
   const selCount = Object.keys(sel).length;
   const addSelected = async () => {
     if (!selCount) return;
@@ -802,7 +856,16 @@ function FindProfessors({ toast }: any) {
       <div className="card">
         <div className="grid g2">
           <div><label>Country</label><select value={country} onChange={(e) => setCountry(e.target.value)}>{COUNTRIES.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></div>
-          <div><label>University / institution</label><Picker type="institutions" value={inst.label} placeholder="e.g. Stanford University" onPick={(id, label) => setInst({ id, label })} /></div>
+          <div><label>University / institution</label>
+            {country ? (
+              <select value={inst.id} onChange={(e) => { const u = countryUnis.find((x) => x.id === e.target.value); setInst(u ? { id: u.id, label: u.label } : { id: "", label: "" }); }} disabled={uniLoading}>
+                <option value="">{uniLoading ? "Loading universities…" : `All universities (${countryUnis.length})`}</option>
+                {countryUnis.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
+              </select>
+            ) : (
+              <Picker type="institutions" value={inst.label} placeholder="e.g. Stanford University" onPick={(id, label) => setInst({ id, label })} />
+            )}
+          </div>
         </div>
         <div className="grid g2" style={{ marginTop: 12 }}>
           <div><label>Field of research (add several to broaden)</label>
@@ -815,7 +878,7 @@ function FindProfessors({ toast }: any) {
               </div>
             )}
           </div>
-          <div><label>Name / keyword (optional)</label><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter by name or keyword" /></div>
+          <div><label>Professor name (optional)</label><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter by professor name" /><div className="mut tiny" style={{ marginTop: 6 }}>Searches names only — use Field of research above for topics.</div></div>
         </div>
         <div className="row" style={{ marginTop: 14 }}><button className="btn" disabled={busy} onClick={() => search(1)}>Search</button><span className="mut">{status}</span></div>
       </div>
@@ -843,7 +906,7 @@ function FindProfessors({ toast }: any) {
       )}
 
       <div className="card">{busy ? <Loader /> : results.length ? (
-        <table><thead><tr><th style={{ width: 28 }} /><th>Name</th><th>Institution</th><th>Country</th><th>Topics</th><th>Works</th><th>Cited</th></tr></thead><tbody>
+        <table><thead><tr><th style={{ width: 28 }} /><th>Name</th><th>Institution</th><th>Country</th><th>Topics</th><th>Works</th><th>Cited</th><th>Email</th></tr></thead><tbody>
           {results.map((r) => (
             <tr key={r.openalex_id}>
               <td><input type="checkbox" checked={!!sel[r.openalex_id]} onChange={() => toggle(r)} /></td>
@@ -853,6 +916,12 @@ function FindProfessors({ toast }: any) {
               <td className="mut" style={{ maxWidth: 240 }}>{r.topics}</td>
               <td>{r.works_count}</td>
               <td>{r.cited_by_count}</td>
+              <td>{(() => {
+                const em = emails[r.openalex_id];
+                if (!em) return <button className="btn sm sec" onClick={() => findEmail(r)}>Find</button>;
+                if (em.loading) return <span className="mut tiny">Searching…</span>;
+                return em.email ? <a href={`mailto:${em.email}`} className="tiny" style={{ color: "var(--acc2)", wordBreak: "break-all" }}>{em.email}</a> : <span className="mut tiny">Not found</span>;
+              })()}</td>
             </tr>
           ))}
         </tbody></table>) : <div className="mut">No results yet — set filters and search.</div>}</div>
@@ -864,6 +933,72 @@ function FindProfessors({ toast }: any) {
           <button className="btn sm sec" disabled={results.length < 25 || busy} onClick={() => search(page + 1)}>Next &rarr;</button>
         </div>
       )}
+    </>
+  );
+}
+
+/* ---------- Email harvesting ---------- */
+const CC_NAMES: Record<string, string> = { cn: "China", jp: "Japan", kr: "South Korea", tw: "Taiwan", sg: "Singapore" };
+
+function EmailHarvest({ toast }: any) {
+  const [d, setD] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => api("/api/admin/harvest/stats").then(setD).catch(() => {});
+  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    if (!d?.active) return;
+    const t = setInterval(load, 6000);
+    return () => clearInterval(t);
+  }, [d?.active]);
+  const toggle = async () => {
+    await api("/api/admin/harvest/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: !d?.active }) });
+    load();
+  };
+  const runOne = async () => {
+    setBusy(true);
+    try {
+      const r = await api("/api/admin/harvest/tick", { method: "POST" });
+      toast(r.idle ? "Crawl is paused — turn it on first" : r.done ? "All countries done" : `${(r.country || "").toUpperCase()}: +${r.stored || 0} emails`);
+    } catch (e: any) { toast(e.message || "Failed"); }
+    setBusy(false); load();
+  };
+  const reset = async (c: string) => {
+    if (!confirm(`Re-crawl ${(CC_NAMES[c] || c)} from the start?`)) return;
+    await api("/api/admin/harvest/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reset: c }) });
+    load();
+  };
+  if (!d) return <Loader page />;
+  return (
+    <>
+      <h1>Email cache</h1><p className="lead">Builds a shared professor-email database by scraping the first page of their open-access papers.</p>
+      <div className="grid g3" style={{ marginBottom: 16 }}>
+        <div className="stat"><div className="n">{Number(d.total || 0).toLocaleString()}</div><div className="l">Emails cached</div></div>
+        <div className="stat"><div className="n">{Number(d.high || 0).toLocaleString()}</div><div className="l">High confidence</div></div>
+        <div className="stat"><div className="n" style={{ color: d.active ? "var(--acc)" : "var(--mut)" }}>{d.active ? "Running" : "Paused"}</div><div className="l">Background crawl</div></div>
+      </div>
+      <div className="card" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <Toggle checked={!!d.active} onChange={toggle} label={d.active ? "Background crawl on" : "Background crawl off"} />
+        <button className="btn sm sec" disabled={busy} onClick={runOne}>{busy ? "Running…" : "Run one batch now"}</button>
+        <span className="mut tiny">When on, a 1-minute cron advances it automatically. One batch ≈ 15 papers.</span>
+      </div>
+      <div className="grid g2">
+        {(d.countries || []).map((c: any) => (
+          <div className="card" key={c.country} style={{ marginBottom: 0 }}>
+            <div className="row" style={{ justifyContent: "space-between" }}>
+              <b>{CC_NAMES[c.country] || c.country.toUpperCase()}</b>
+              <span className={`pill ${c.status === "done" ? "sent" : c.status === "running" ? "scheduled" : "draft"}`}>{c.status}</span>
+            </div>
+            <div className="row" style={{ gap: 20, marginTop: 12 }}>
+              <div><div style={{ fontSize: 22, fontWeight: 800 }}>{Number(c.cached || 0).toLocaleString()}</div><div className="mut tiny">emails cached</div></div>
+              <div><div style={{ fontSize: 22, fontWeight: 800 }}>{Number(c.papers || 0).toLocaleString()}</div><div className="mut tiny">papers scanned</div></div>
+            </div>
+            <div className="row" style={{ marginTop: 12, gap: 10 }}>
+              <button className="btn sm sec" onClick={() => reset(c.country)}>Re-crawl</button>
+              {c.updated_at && <span className="mut tiny">updated {fmt(c.updated_at)}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
     </>
   );
 }
