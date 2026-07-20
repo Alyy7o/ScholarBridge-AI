@@ -18,6 +18,8 @@ export async function POST(req: Request) {
   let subject = String(form.get("subject") || "").trim();
   const searchTopics = String(form.get("search_topics") || "").trim();
 
+  const bucketId = String(form.get("bucket_id") || "").trim();
+
   let profs: Professor[] = [];
   if (file) {
     try {
@@ -25,6 +27,16 @@ export async function POST(req: Request) {
     } catch (e) {
       return err(`Could not read Excel: ${(e as Error).message}`);
     }
+  } else if (bucketId) {
+    // Pull the professors that belong to the chosen bucket.
+    const { data: members } = await sb
+      .from("professor_bucket_members")
+      .select("professor_id")
+      .eq("bucket_id", bucketId);
+    const ids = (members || []).map((m) => m.professor_id);
+    if (!ids.length) return err("That bucket has no professors yet.");
+    const { data } = await sb.from("professors").select("*").in("id", ids);
+    profs = (data || []) as Professor[];
   } else {
     const ids: string[] = JSON.parse(String(form.get("professor_ids") || "[]"));
     let q = sb.from("professors").select("*");

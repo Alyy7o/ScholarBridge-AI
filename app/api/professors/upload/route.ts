@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/supabase";
 import { json, err } from "@/lib/http";
 import { parseProfessors } from "@/lib/parse";
+import { ensureBucketId, addMembers } from "@/lib/buckets";
 
 export async function POST(req: Request) {
   const { sb, user } = await requireUser();
@@ -14,12 +15,19 @@ export async function POST(req: Request) {
   } catch (e) {
     return err(`Could not read file: ${(e as Error).message}`);
   }
+  const bucketId = await ensureBucketId(sb, user.id, {
+    bucketId: String(form.get("bucket_id") || ""),
+    bucketName: String(form.get("bucket_name") || ""),
+  });
   let added = 0, dupes = 0;
+  const memberIds: string[] = [];
   for (const r of rows) {
     const { data: exists } = await sb.from("professors").select("id").ilike("email", r.email).maybeSingle();
-    if (exists) { dupes++; continue; }
-    await sb.from("professors").insert({ ...r, user_id: user.id });
+    if (exists) { dupes++; memberIds.push(exists.id); continue; }
+    const { data: ins } = await sb.from("professors").insert({ ...r, user_id: user.id }).select("id").single();
+    if (ins) memberIds.push(ins.id);
     added++;
   }
+  await addMembers(sb, user.id, bucketId, memberIds); // file all uploaded rows into the bucket
   return json({ added, duplicates: dupes, total_rows: rows.length });
 }

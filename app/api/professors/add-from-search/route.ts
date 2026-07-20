@@ -1,6 +1,7 @@
 import { requireUser, supabaseAdmin } from "@/lib/supabase";
 import { json, err } from "@/lib/http";
 import { harvestForAuthor } from "@/lib/harvest";
+import { ensureBucketId, addMembers } from "@/lib/buckets";
 
 export const maxDuration = 60;
 
@@ -24,9 +25,11 @@ export async function POST(req: Request) {
   const profs: Incoming[] = Array.isArray(body.professors) ? body.professors.slice(0, 15) : [];
   if (!profs.length) return err("No professors selected");
 
+  const bucketId = await ensureBucketId(sb, user.id, { bucketId: body.bucket_id, bucketName: body.bucket_name });
   let added = 0;
   let duplicates = 0;
   const needsEmail: Incoming[] = [];
+  const memberIds: string[] = [];
 
   for (const p of profs) {
     const name = String(p.name || "").trim();
@@ -47,18 +50,20 @@ export async function POST(req: Request) {
     const { data: dup } = await sb.from("professors").select("id").ilike("email", email).maybeSingle();
     if (dup) {
       duplicates++;
+      memberIds.push(dup.id);
       continue;
     }
-    const { error } = await sb.from("professors").insert({
+    const { data: ins, error } = await sb.from("professors").insert({
       user_id: user.id,
       name,
       email,
       university: p.institution || "",
       topics: p.topics || "",
-    });
+    }).select("id").single();
     if (error) duplicates++;
-    else added++;
+    else { added++; if (ins) memberIds.push(ins.id); }
   }
 
+  await addMembers(sb, user.id, bucketId, memberIds); // file everyone found into the bucket
   return json({ added, duplicates, needsEmail });
 }

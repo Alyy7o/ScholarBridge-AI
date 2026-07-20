@@ -374,18 +374,21 @@ function Compose({ toast, go }: any) {
   const toggleDate = (k: string) => setDates((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const [pickAtt, setPickAtt] = useState<string[]>([]);
   const [file, setFile] = useState<File | null>(null);
+  const [buckets, setBuckets] = useState<any[]>([]);
+  const [bucketId, setBucketId] = useState("");
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [menuIdx, setMenuIdx] = useState<number | null>(null);
 
   const patchEmail = (i: number, patch: any) => setPreview((p) => p.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
   const removeEmail = (i: number) => { setPreview((p) => p.filter((_, idx) => idx !== i)); setEditIdx(null); };
 
-  useEffect(() => { api("/api/templates").then(setTpls); api("/api/professors").then(setProfs); api("/api/attachments").then(setAtts); }, []);
+  useEffect(() => { api("/api/templates").then(setTpls); api("/api/professors").then(setProfs); api("/api/attachments").then(setAtts); api("/api/buckets").then(setBuckets).catch(() => {}); }, []);
 
   const runAI = async () => {
     setBusy(true); setStatus("Researching & writing…");
     const fd = new FormData(); if (file) fd.append("file", file);
     fd.append("template_id", tplId); fd.append("subject", subj); fd.append("search_topics", searchTopics); fd.append("professor_ids", "[]");
+    if (!file && bucketId) fd.append("bucket_id", bucketId);
     try { const j = await api("/api/compose/ai", { method: "POST", body: fd }); setPreview(j.emails); setStatus(`${j.emails.length} drafted`); }
     catch (e: any) { setStatus("Error: " + e.message); } setBusy(false);
   };
@@ -431,7 +434,13 @@ function Compose({ toast, go }: any) {
             </ul>
             Rows without a valid email (containing <code>@</code>) are skipped. Or skip the file and use your saved professors.
           </Tips>
-          <label>Professors Excel/CSV (or use {profs.length} saved)</label>
+          <label>Professor bucket (from your saved professors)</label>
+          <select value={bucketId} onChange={(e) => setBucketId(e.target.value)} disabled={!!file}>
+            <option value="">{profs.length ? `All saved professors (${profs.length})` : "No saved professors"}</option>
+            {buckets.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.count})</option>)}
+          </select>
+          <div className="mut tiny" style={{ margin: "6px 0 14px" }}>Pick a bucket to email just that group, or leave on &ldquo;All saved&rdquo;. Uploading a file below overrides this.</div>
+          <label>Or upload an Excel/CSV instead</label>
           <FileDrop file={file} onFile={setFile} accept=".xlsx,.xls,.csv" hint="XLSX, XLS or CSV file" />
           <div className="grid g2" style={{ marginTop: 14 }}>
             <div><label>Template</label><select value={tplId} onChange={(e) => setTplId(e.target.value)}><option value="">Built-in default</option>{tpls.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
@@ -569,56 +578,119 @@ function Compose({ toast, go }: any) {
 }
 
 /* ---------- Professors ---------- */
+const NEW_BUCKET = "__new__";
 function Professors({ toast }: any) {
   const [list, setList] = useState<any[]>([]);
+  const [buckets, setBuckets] = useState<any[]>([]);
   const [m, setM] = useState({ name: "", email: "", university: "", topics: "" });
   const [editId, setEditId] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [st, setSt] = useState("");
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<Set<string>>(new Set());
-  const load = () => api("/api/professors").then((x) => { setList(x); setLoading(false); setSel(new Set()); });
+  const [filter, setFilter] = useState("");                 // "" = all, "__none__" = ungrouped, else bucket id
+  const [addBucket, setAddBucket] = useState("");           // bucket to file new adds/uploads into
+  const [newName, setNewName] = useState("");               // typed name when addBucket === NEW_BUCKET
+  const bucketName = (id: string) => buckets.find((b) => b.id === id)?.name || "";
+  const load = () => {
+    api("/api/professors").then((x) => { setList(x); setLoading(false); setSel(new Set()); });
+    api("/api/buckets").then(setBuckets).catch(() => {});
+  };
   useEffect(() => { load(); }, []);
-  const upload = async () => { if (!file) { setSt("Choose a file"); return; } const fd = new FormData(); fd.append("file", file); setSt("Uploading…"); try { const j = await api("/api/professors/upload", { method: "POST", body: fd }); setSt(`Added ${j.added}, skipped ${j.duplicates}`); load(); } catch (e) { setSt((e as Error).message || "Upload failed"); } };
+
+  // Bucket fields to send with an add/upload, resolving the "new bucket" case.
+  const bucketFields = () => {
+    if (addBucket === NEW_BUCKET) return newName.trim() ? { bucket_name: newName.trim() } : {};
+    return addBucket ? { bucket_id: addBucket } : {};
+  };
+  const upload = async () => {
+    if (!file) { setSt("Choose a file"); return; }
+    const fd = new FormData(); fd.append("file", file);
+    const bf = bucketFields(); if ((bf as any).bucket_id) fd.append("bucket_id", (bf as any).bucket_id); if ((bf as any).bucket_name) fd.append("bucket_name", (bf as any).bucket_name);
+    setSt("Uploading…");
+    try { const j = await api("/api/professors/upload", { method: "POST", body: fd }); setSt(`Added ${j.added}, skipped ${j.duplicates}`); setNewName(""); load(); }
+    catch (e) { setSt((e as Error).message || "Upload failed"); }
+  };
   const blank = { name: "", email: "", university: "", topics: "" };
   const save = async () => {
     if (!m.email.includes("@")) { toast("Valid email required"); return; }
-    const body = editId ? { ...m, id: editId } : m;
+    const body = { ...(editId ? { ...m, id: editId } : m), ...(editId ? {} : bucketFields()) };
     const j = await api("/api/professors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (j.duplicate) toast("Already exists");
-    else { toast(editId ? "Updated" : "Added"); setM(blank); setEditId(null); }
+    if (j.duplicate) toast(j.bucketed ? "Already saved — added to bucket" : "Already exists");
+    else { toast(editId ? "Updated" : "Added"); setM(blank); setEditId(null); setNewName(""); }
     load();
   };
   const edit = (p: any) => { setEditId(p.id); setM({ name: p.name || "", email: p.email || "", university: p.university || "", topics: p.topics || "" }); if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" }); };
   const del = async (id: string) => { await api("/api/professors/" + id, { method: "DELETE" }); load(); };
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const toggleAll = () => setSel((s) => (s.size === list.length ? new Set() : new Set(list.map((p) => p.id))));
   const bulkDelete = async () => {
     if (!sel.size || !confirm(`Delete ${sel.size} professor(s)?`)) return;
     await api("/api/professors/bulk-delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: [...sel] }) });
     toast(`Deleted ${sel.size}`); load();
   };
-  const allChecked = list.length > 0 && sel.size === list.length;
+  const bulkAssign = async () => {
+    const bf = bucketFields();
+    if (!(bf as any).bucket_id && !(bf as any).bucket_name) { toast("Pick a bucket above first"); return; }
+    await api("/api/buckets/assign", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ professor_ids: [...sel], ...bf }) });
+    toast(`Added ${sel.size} to bucket`); setNewName(""); load();
+  };
+  const delBucket = async (id: string) => {
+    if (!confirm(`Delete bucket "${bucketName(id)}"? Professors stay; only the grouping is removed.`)) return;
+    await api("/api/buckets/" + id, { method: "DELETE" });
+    if (filter === id) setFilter(""); if (addBucket === id) setAddBucket("");
+    load();
+  };
+
+  const shown = filter === "__none__" ? list.filter((p) => !(p.bucket_ids || []).length)
+    : filter ? list.filter((p) => (p.bucket_ids || []).includes(filter)) : list;
+  const allChecked = shown.length > 0 && shown.every((p) => sel.has(p.id));
+  const toggleAll = () => setSel((s) => (shown.every((p) => s.has(p.id)) ? new Set([...s].filter((id) => !shown.some((p) => p.id === id))) : new Set([...s, ...shown.map((p) => p.id)])));
+
   return (
     <>
-      <h1>Professors</h1><p className="lead">Upload a spreadsheet or add manually. A &ldquo;Field&rdquo; or &ldquo;Area&rdquo; column is read as the professor&rsquo;s topics. Duplicate emails are skipped.</p>
-      <div className="card"><div className="grid g2">
-        <div><label>Upload Excel/CSV</label><FileDrop file={file} onFile={setFile} accept=".xlsx,.xls,.csv" hint="XLSX, XLS or CSV file" /><div className="row" style={{ marginTop: 10 }}><button className="btn sm" onClick={upload}>Upload</button><span className="mut">{st}</span></div></div>
-        <div><label>{editId ? "Edit professor" : "Add manually"}</label>
-          {(["name", "email", "university", "topics"] as const).map((k) => (<input key={k} placeholder={k === "topics" ? "Topics / field" : k[0].toUpperCase() + k.slice(1)} value={(m as any)[k]} onChange={(e) => setM({ ...m, [k]: e.target.value })} style={{ marginBottom: 8 }} />))}
-          <div className="row"><button className="btn sm" onClick={save}>{editId ? "Update professor" : "Add professor"}</button>{editId && <button className="btn sm sec" onClick={() => { setEditId(null); setM(blank); }}>Cancel</button>}</div></div>
-      </div></div>
+      <h1>Professors</h1><p className="lead">Upload a spreadsheet or add manually, and sort professors into buckets you can target when composing. A &ldquo;Field&rdquo; or &ldquo;Area&rdquo; column is read as the professor&rsquo;s topics.</p>
+      <div className="card">
+        <label>Add to bucket</label>
+        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+          <select value={addBucket} onChange={(e) => setAddBucket(e.target.value)} style={{ maxWidth: 260 }}>
+            <option value="">No bucket (just save)</option>
+            {buckets.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.count})</option>)}
+            <option value={NEW_BUCKET}>＋ New bucket…</option>
+          </select>
+          {addBucket === NEW_BUCKET && <input placeholder="New bucket name" value={newName} onChange={(e) => setNewName(e.target.value)} style={{ maxWidth: 220 }} />}
+        </div>
+        <div className="mut tiny" style={{ marginTop: 6 }}>New professors added or uploaded below go into this bucket. Choose &ldquo;No bucket&rdquo; to just save them.</div>
+        <div className="grid g2" style={{ marginTop: 14 }}>
+          <div><label>Upload Excel/CSV</label><FileDrop file={file} onFile={setFile} accept=".xlsx,.xls,.csv" hint="XLSX, XLS or CSV file" /><div className="row" style={{ marginTop: 10 }}><button className="btn sm" onClick={upload}>Upload</button><span className="mut">{st}</span></div></div>
+          <div><label>{editId ? "Edit professor" : "Add manually"}</label>
+            {(["name", "email", "university", "topics"] as const).map((k) => (<input key={k} placeholder={k === "topics" ? "Topics / field" : k[0].toUpperCase() + k.slice(1)} value={(m as any)[k]} onChange={(e) => setM({ ...m, [k]: e.target.value })} style={{ marginBottom: 8 }} />))}
+            <div className="row"><button className="btn sm" onClick={save}>{editId ? "Update professor" : "Add professor"}</button>{editId && <button className="btn sm sec" onClick={() => { setEditId(null); setM(blank); }}>Cancel</button>}</div></div>
+        </div>
+      </div>
+
+      <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+        <button className={"chip" + (filter === "" ? " on" : "")} onClick={() => setFilter("")}>All ({list.length})</button>
+        {buckets.map((b) => (
+          <span key={b.id} className={"chip" + (filter === b.id ? " on" : "")} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <button className="chip-lbl" onClick={() => setFilter(b.id)}>{b.name} ({b.count})</button>
+            <button className="chip-x" title="Delete bucket" onClick={() => delBucket(b.id)}>×</button>
+          </span>
+        ))}
+        <button className={"chip" + (filter === "__none__" ? " on" : "")} onClick={() => setFilter("__none__")}>Ungrouped</button>
+      </div>
+
       {sel.size > 0 && (
         <div className="card" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <b>{sel.size} selected</b>
+          <button className="btn sm" onClick={bulkAssign}>Add to bucket ↑</button>
           <button className="btn sm danger" onClick={bulkDelete}>Delete selected</button>
           <button className="btn sm sec" onClick={() => setSel(new Set())}>Clear</button>
         </div>
       )}
-      <div className="card">{loading ? <Loader /> : list.length ? (
-        <table><thead><tr><th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th><th>Name</th><th>Email</th><th>University/Lab</th><th>Topics / Field</th><th /></tr></thead><tbody>
-          {list.map((p) => (<tr key={p.id}><td><input type="checkbox" checked={sel.has(p.id)} onChange={() => toggle(p.id)} aria-label={`Select ${p.name}`} /></td><td><b>{p.name}</b></td><td>{p.email}</td><td>{p.university}</td><td className="mut">{p.topics}</td><td style={{ whiteSpace: "nowrap" }}><button className="btn sm sec" onClick={() => edit(p)}>Edit</button> <button className="btn sm danger" onClick={() => del(p.id)}>Delete</button></td></tr>))}
-        </tbody></table>) : <div className="mut">No professors yet.</div>}</div>
+      <div className="card">{loading ? <Loader /> : shown.length ? (
+        <table><thead><tr><th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th><th>Name</th><th>Email</th><th>University/Lab</th><th>Buckets</th><th>Topics / Field</th><th /></tr></thead><tbody>
+          {shown.map((p) => (<tr key={p.id}><td><input type="checkbox" checked={sel.has(p.id)} onChange={() => toggle(p.id)} aria-label={`Select ${p.name}`} /></td><td><b>{p.name}</b></td><td>{p.email}</td><td>{p.university}</td><td>{(p.bucket_ids || []).length ? (p.bucket_ids || []).map((id: string) => <span key={id} className="pill draft" style={{ marginRight: 4 }}>{bucketName(id)}</span>) : <span className="mut tiny">—</span>}</td><td className="mut">{p.topics}</td><td style={{ whiteSpace: "nowrap" }}><button className="btn sm sec" onClick={() => edit(p)}>Edit</button> <button className="btn sm danger" onClick={() => del(p.id)}>Delete</button></td></tr>))}
+        </tbody></table>) : <div className="mut">{filter ? "No professors in this bucket yet." : "No professors yet."}</div>}</div>
     </>
   );
 }
@@ -868,6 +940,15 @@ function FindProfessors({ toast }: any) {
   const [emails, setEmails] = useState<Record<string, { loading?: boolean; email?: string | null }>>({});
   const [adding, setAdding] = useState(false);
   const [needsEmail, setNeedsEmail] = useState<any[]>([]);
+  const [buckets, setBuckets] = useState<any[]>([]);
+  const [addBucket, setAddBucket] = useState("");
+  const [newName, setNewName] = useState("");
+  const bucketFields = () => {
+    if (addBucket === NEW_BUCKET) return newName.trim() ? { bucket_name: newName.trim() } : {};
+    return addBucket ? { bucket_id: addBucket } : {};
+  };
+
+  useEffect(() => { api("/api/buckets").then(setBuckets).catch(() => {}); }, []);
 
   useEffect(() => {
     setInst({ id: "", label: "" });
@@ -905,17 +986,19 @@ function FindProfessors({ toast }: any) {
     if (!selCount) return;
     setAdding(true); setStatus("Adding & finding emails from their papers…");
     try {
-      const j = await api("/api/professors/add-from-search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ professors: Object.values(sel) }) });
+      const j = await api("/api/professors/add-from-search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ professors: Object.values(sel), ...bucketFields() }) });
       toast(`Added ${j.added}${j.duplicates ? `, ${j.duplicates} dup` : ""}`);
-      setNeedsEmail(j.needsEmail || []); setSel({});
+      setNeedsEmail(j.needsEmail || []); setSel({}); setNewName("");
+      api("/api/buckets").then(setBuckets).catch(() => {}); // refresh counts / new bucket
       setStatus(`Added ${j.added}. ${(j.needsEmail || []).length} need an email.`);
     } catch (e: any) { setStatus("Error: " + e.message); }
     setAdding(false);
   };
   const addManual = async (p: any, email: string) => {
     if (!email.includes("@")) { toast("Valid email required"); return; }
-    await api("/api/professors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: p.name, email, university: p.institution || "", topics: p.topics || "" }) });
+    await api("/api/professors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: p.name, email, university: p.institution || "", topics: p.topics || "", ...bucketFields() }) });
     toast("Added"); setNeedsEmail((list) => list.filter((x) => x !== p));
+    api("/api/buckets").then(setBuckets).catch(() => {});
   };
 
   return (
@@ -954,6 +1037,13 @@ function FindProfessors({ toast }: any) {
       {selCount > 0 && (
         <div className="card" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <b>{selCount} selected</b>
+          <span className="mut tiny">Bucket:</span>
+          <select value={addBucket} onChange={(e) => setAddBucket(e.target.value)} style={{ maxWidth: 220, height: 34, padding: "6px 10px" }}>
+            <option value="">No bucket</option>
+            {buckets.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.count})</option>)}
+            <option value={NEW_BUCKET}>＋ New bucket…</option>
+          </select>
+          {addBucket === NEW_BUCKET && <input placeholder="New bucket name" value={newName} onChange={(e) => setNewName(e.target.value)} style={{ maxWidth: 180, height: 34, padding: "6px 10px" }} />}
           <button className="btn sm" disabled={adding} onClick={addSelected}>{adding ? "Adding…" : "Add selected to my list"}</button>
           <button className="btn sm sec" onClick={() => setSel({})}>Clear</button>
         </div>

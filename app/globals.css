@@ -61,6 +61,13 @@ td{padding:10px 8px;border-bottom:1px solid var(--line);font-size:13px;vertical-
 .rte-area ul{margin:0 0 10px;padding-left:22px}
 .email-html{margin-top:6px;font-size:14px;line-height:1.6;color:var(--ink)}
 .email-html p{margin:0 0 10px}.email-html ul{padding-left:22px;margin:0 0 10px}
+.chip{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer}
+.chip:hover{background:var(--field)}
+.chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.chip.on .chip-lbl,.chip.on .chip-x{color:#fff}
+.chip-lbl{background:none;border:none;padding:0;cursor:pointer;color:inherit;font:inherit}
+.chip-x{background:none;border:none;padding:0 0 0 2px;cursor:pointer;color:var(--mut);font-size:15px;line-height:1}
+.chip-x:hover{color:var(--bad)}
 @keyframes sbspin{to{transform:rotate(360deg)}}
 .emailrow{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:var(--field)}
 pre{white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.5;margin:8px 0 0;color:var(--ink)}
