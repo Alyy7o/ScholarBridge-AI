@@ -18,23 +18,40 @@ export async function GET() {
   ]);
   const order: string[] = ctrl?.order_list || ["cn", "jp", "kr", "tw", "sg"];
   const byC = new Map((states || []).map((s: any) => [s.country, s]));
-  // Per-country cached-email counts.
-  const perCountry: Record<string, number> = {};
-  for (const c of order) {
+
+  // Reliable counts for the priority countries (direct queries — work even
+  // before the email_country_counts migration is applied).
+  const perPriority: Record<string, number> = {};
+  await Promise.all(order.map(async (c) => {
     const { count } = await admin.from("professor_emails").select("*", { count: "exact", head: true }).eq("country", c).not("email", "is", null);
-    perCountry[c] = count || 0;
-  }
+    perPriority[c] = count || 0;
+  }));
+
+  // Counts for EVERY other country via the SQL grouping function (needs migration
+  // 0006). If it's missing we just show the priority countries.
+  const { data: counts } = await admin.rpc("email_country_counts");
+  const cachedByCountry = new Map<string, number>((counts || []).map((r: any) => [r.country, Number(r.count)]));
+  for (const c of order) cachedByCountry.set(c, perPriority[c]); // priority counts win
+
+  // Show a card for each priority country (even at 0) plus every other country
+  // that has found emails. Priority ones keep their crawl status/papers.
+  const allCountries = Array.from(new Set([...order, ...cachedByCountry.keys()]));
+  const countries = allCountries.map((c) => ({
+    country: c,
+    status: byC.get(c)?.status || (order.includes(c) ? "pending" : "found"),
+    papers: byC.get(c)?.papers || 0,
+    cached: cachedByCountry.get(c) || 0,
+    updated_at: byC.get(c)?.updated_at || null,
+    priority: order.includes(c),
+  }));
+  // Priority countries first, then the rest by most emails.
+  countries.sort((a, b) => (Number(b.priority) - Number(a.priority)) || (b.cached - a.cached));
+
   return json({
     active: !!ctrl?.active,
     order,
     total: total || 0,
     high: high || 0,
-    countries: order.map((c) => ({
-      country: c,
-      status: byC.get(c)?.status || "pending",
-      papers: byC.get(c)?.papers || 0,
-      cached: perCountry[c] || 0,
-      updated_at: byC.get(c)?.updated_at || null,
-    })),
+    countries,
   });
 }

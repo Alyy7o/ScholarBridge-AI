@@ -145,7 +145,13 @@ async function pageOneText(url: string): Promise<string> {
   }
 }
 
-type Found = { openalex_id: string; name: string; email: string; institution: string; country: string; workId: string; year: number; score: number };
+type Found = { openalex_id: string; name: string; email: string; institution: string; country: string; field: string; workId: string; year: number; score: number };
+
+/** The paper's research area, from its OpenAlex topic (subfield preferred). */
+function fieldOfWork(w: any): string {
+  const t = w.primary_topic || {};
+  return t.subfield?.display_name || t.field?.display_name || t.display_name || "";
+}
 
 /** Harvest one work: return EVERY author (so we never lose a professor), with an
  *  email attached where we can find one on the paper's first pages. */
@@ -182,10 +188,11 @@ async function harvestWork(w: any): Promise<Found[]> {
 
   const year = Number(w.publication_year) || new Date().getFullYear();
   const wid = String(w.id || "").split("/").pop() || "";
+  const field = fieldOfWork(w);
   // One record per author — email + score only when found, else blank.
   return authors.map((a) => {
     const v = paired[a.id];
-    return { openalex_id: a.id, name: a.name, email: v?.email || "", institution: a.institution, country: a.country, workId: wid, year, score: v?.score || 0 };
+    return { openalex_id: a.id, name: a.name, email: v?.email || "", institution: a.institution, country: a.country, field, workId: wid, year, score: v?.score || 0 };
   });
 }
 
@@ -215,6 +222,7 @@ export async function storeEmails(admin: SupabaseClient, found: Found[]): Promis
       domain: hasEmail ? (email.split("@")[1] || "") : "",
       institution: f.institution || ex?.institution || "",
       country: (f.country || ex?.country || "").toLowerCase(),
+      field: f.field || ex?.field || "",
       source_work_ids: [...works],
       times_seen: seen,
       first_seen_year: ex?.first_seen_year || f.year,
@@ -243,7 +251,7 @@ export async function harvestForAuthor(admin: SupabaseClient, authorId: string, 
       filter: `authorships.author.id:${authorId},open_access.is_oa:true`,
       sort: "publication_date:desc",
       per_page: "6",
-      select: "id,publication_year,authorships,best_oa_location,primary_location",
+      select: "id,publication_year,authorships,best_oa_location,primary_location,primary_topic",
     }));
     works = data.results || [];
   } catch {
@@ -269,7 +277,7 @@ export async function crawlCountry(admin: SupabaseClient, country: string, curso
     sort: "cited_by_count:desc",
     per_page: "15",
     cursor: cursor || "*",
-    select: "id,publication_year,authorships,best_oa_location,primary_location",
+    select: "id,publication_year,authorships,best_oa_location,primary_location,primary_topic",
   }));
   const works = data.results || [];
   const all: Found[] = [];
@@ -278,12 +286,28 @@ export async function crawlCountry(admin: SupabaseClient, country: string, curso
   return { processed: works.length, stored, next: data.meta?.next_cursor || null };
 }
 
+/** Crawl one country's next page and persist its progress. Used by tick. */
+async function advanceCountry(admin: SupabaseClient, country: string, st: any): Promise<{ country: string; processed: number; stored: number; done: boolean }> {
+  const r = await crawlCountry(admin, country, st?.cursor || "*");
+  const totalPapers = (st?.papers || 0) + r.processed;
+  // A country stops (status "done") when it runs out of pages OR reaches the cap.
+  const done = !r.next || r.processed === 0 || totalPapers >= COUNTRY_PAPER_CAP;
+  await admin.from("harvest_state").upsert({
+    country,
+    cursor: r.next || st?.cursor || "*",
+    status: done ? "done" : "running",
+    papers: totalPapers,
+    emails: (st?.emails || 0) + r.stored,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "country" });
+  return { country, processed: r.processed, stored: r.stored, done };
+}
+
 /**
- * Background tick: advance the active crawl by one page. Countries are crawled
- * ROUND-ROBIN — each tick picks the least-recently-crawled country that isn't
- * done — so every country progresses in parallel instead of one huge country
- * (e.g. China) monopolizing the crawler forever. Intended to be called ~every
- * minute by a cron.
+ * Background tick: advance ONE country by one page each call (round-robin — the
+ * least-recently-crawled eligible country goes next), so a 1-minute cron rotates
+ * evenly across all countries. Every non-done, non-paused country is included.
+ * Intended to be called ~every minute by a cron.
  */
 export async function tick(admin: SupabaseClient): Promise<{ idle?: boolean; done?: boolean; country?: string; processed?: number; stored?: number; capped?: boolean }> {
   const { data: ctrl } = await admin.from("harvest_control").select("*").eq("id", 1).maybeSingle();
@@ -293,9 +317,8 @@ export async function tick(admin: SupabaseClient): Promise<{ idle?: boolean; don
   const { data: states } = await admin.from("harvest_state").select("*").in("country", order);
   const byC = new Map((states || []).map((s: any) => [s.country, s]));
 
-  // Every country that still has pages left, rotated so the one waiting longest
-  // (oldest updated_at; never-crawled counts as oldest) goes next.
-  // Skip countries that are done OR paused; rotate the rest by oldest updated_at.
+  // Include every country except those that are done or paused; rotate by the
+  // one waiting longest (oldest updated_at; never-crawled counts as oldest).
   const pending = order.filter((c) => {
     const s = byC.get(c)?.status || "pending";
     return s !== "done" && s !== "paused";
@@ -304,18 +327,6 @@ export async function tick(admin: SupabaseClient): Promise<{ idle?: boolean; don
   pending.sort((a, b) => String(byC.get(a)?.updated_at || "").localeCompare(String(byC.get(b)?.updated_at || "")));
   const next = pending[0];
 
-  const st: any = byC.get(next) || { country: next, cursor: "*", papers: 0, emails: 0 };
-  const r = await crawlCountry(admin, next, st.cursor || "*");
-  const totalPapers = (st.papers || 0) + r.processed;
-  // A country stops (status "done") when it runs out of pages OR reaches the cap.
-  const done = !r.next || r.processed === 0 || totalPapers >= COUNTRY_PAPER_CAP;
-  await admin.from("harvest_state").upsert({
-    country: next,
-    cursor: r.next || st.cursor || "*",
-    status: done ? "done" : "running",
-    papers: totalPapers,
-    emails: (st.emails || 0) + r.stored,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: "country" });
-  return { country: next, processed: r.processed, stored: r.stored, done, capped: done && totalPapers >= COUNTRY_PAPER_CAP };
+  const r = await advanceCountry(admin, next, byC.get(next));
+  return { country: r.country, processed: r.processed, stored: r.stored, done: r.done };
 }

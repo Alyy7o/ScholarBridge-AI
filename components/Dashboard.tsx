@@ -1135,9 +1135,17 @@ function FindProfessors({ toast }: any) {
 /* ---------- Email harvesting ---------- */
 const CC_NAMES: Record<string, string> = { cn: "China", jp: "Japan", kr: "South Korea", tw: "Taiwan", sg: "Singapore" };
 
+const cname = (code: string) => {
+  if (CC_NAMES && CC_NAMES[code]) return CC_NAMES[code];
+  try { return new Intl.DisplayNames(["en"], { type: "region" }).of((code || "").toUpperCase()) || (code || "").toUpperCase(); }
+  catch { return (code || "").toUpperCase(); }
+};
+
 function EmailHarvest({ toast }: any) {
   const [d, setD] = useState<any>(null);
   const [busy, setBusy] = useState(false);
+  const [search, setSearch] = useState("");
+  const [openCountry, setOpenCountry] = useState<string | null>(null);
   const load = () => api("/api/admin/harvest/stats").then(setD).catch(() => {});
   useEffect(() => { load(); }, []);
   useEffect(() => {
@@ -1176,6 +1184,11 @@ function EmailHarvest({ toast }: any) {
     load();
   };
   if (!d) return <Loader page />;
+  if (openCountry) return <CountryDetail code={openCountry} name={cname(openCountry)} onBack={() => setOpenCountry(null)} />;
+
+  const s = search.trim().toLowerCase();
+  const cards = (d.countries || []).filter((c: any) => !s || c.country.toLowerCase().includes(s) || cname(c.country).toLowerCase().includes(s));
+
   return (
     <>
       <h1>Email cache</h1><p className="lead">Builds a shared professor-email database by scraping the first page of their open-access papers.</p>
@@ -1187,30 +1200,86 @@ function EmailHarvest({ toast }: any) {
       <div className="card" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <Toggle checked={!!d.active} onChange={toggle} label={d.active ? "Background crawl on" : "Background crawl off"} />
         <button className="btn sm sec" disabled={busy} onClick={runOne}>{busy ? "Running…" : "Run one batch now"}</button>
-        <span className="mut tiny">When on, a 1-minute cron advances it automatically. One batch ≈ 15 papers.</span>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search country…" style={{ marginLeft: "auto", maxWidth: 240, height: 38, padding: "8px 12px" }} />
       </div>
+
       <div className="grid g2">
-        {(d.countries || []).map((c: any) => (
+        {cards.map((c: any) => (
           <div className="card" key={c.country} style={{ marginBottom: 0 }}>
-            <div className="row" style={{ justifyContent: "space-between" }}>
-              <b>{CC_NAMES[c.country] || c.country.toUpperCase()}</b>
-              <span className={`pill ${c.status === "done" ? "sent" : c.status === "running" ? "scheduled" : c.status === "paused" ? "danger" : "draft"}`}>{c.status}</span>
+            <div onClick={() => setOpenCountry(c.country)} style={{ cursor: "pointer" }}>
+              <div className="row" style={{ justifyContent: "space-between" }}>
+                <b>{cname(c.country)}</b>
+                <span className={`pill ${c.status === "done" ? "sent" : c.status === "running" ? "scheduled" : c.status === "paused" ? "danger" : "draft"}`}>{c.priority ? c.status : "found"}</span>
+              </div>
+              <div className="row" style={{ gap: 20, marginTop: 12 }}>
+                <div><div style={{ fontSize: 22, fontWeight: 800 }}>{Number(c.cached || 0).toLocaleString()}</div><div className="mut tiny">emails cached</div></div>
+                {c.priority && <div><div style={{ fontSize: 22, fontWeight: 800 }}>{Number(c.papers || 0).toLocaleString()}</div><div className="mut tiny">papers scanned</div></div>}
+              </div>
+              <div className="tiny" style={{ marginTop: 8, color: "var(--acc2)", fontWeight: 600 }}>View professors →</div>
             </div>
-            <div className="row" style={{ gap: 20, marginTop: 12 }}>
-              <div><div style={{ fontSize: 22, fontWeight: 800 }}>{Number(c.cached || 0).toLocaleString()}</div><div className="mut tiny">emails cached</div></div>
-              <div><div style={{ fontSize: 22, fontWeight: 800 }}>{Number(c.papers || 0).toLocaleString()}</div><div className="mut tiny">papers scanned</div></div>
-            </div>
-            <div className="row" style={{ marginTop: 12, gap: 10 }}>
-              {c.status !== "done" && (
-                <button className="btn sm sec" onClick={() => pauseResume(c.country, c.status === "paused")}>
-                  {c.status === "paused" ? "▶ Resume" : "⏸ Pause"}
-                </button>
-              )}
-              <button className="btn sm sec" onClick={() => reset(c.country)}>Re-crawl</button>
-              {c.updated_at && <span className="mut tiny">updated {fmt(c.updated_at)}</span>}
-            </div>
+            {c.priority && (
+              <div className="row" style={{ marginTop: 12, gap: 10 }}>
+                {c.status !== "done" && (
+                  <button className="btn sm sec" onClick={() => pauseResume(c.country, c.status === "paused")}>
+                    {c.status === "paused" ? "▶ Resume" : "⏸ Pause"}
+                  </button>
+                )}
+                <button className="btn sm sec" onClick={() => reset(c.country)}>Re-crawl</button>
+                {c.updated_at && <span className="mut tiny">updated {fmt(c.updated_at)}</span>}
+              </div>
+            )}
           </div>
         ))}
+        {cards.length === 0 && <div className="mut">No countries match &ldquo;{search}&rdquo;.</div>}
+      </div>
+    </>
+  );
+}
+
+/* ---------- Email cache: one country's professors ---------- */
+function CountryDetail({ code, name, onBack }: any) {
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [d, setD] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    setLoading(true);
+    const t = setTimeout(() => {
+      api(`/api/admin/harvest/country?code=${code}&q=${encodeURIComponent(q)}&page=${page}`)
+        .then((x) => { setD(x); setLoading(false); })
+        .catch(() => setLoading(false));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [code, q, page]);
+  const pageCount = d ? Math.max(1, Math.ceil(d.total / d.pageSize)) : 1;
+  return (
+    <>
+      <div className="row" style={{ gap: 12, alignItems: "center" }}>
+        <button className="btn sm sec" onClick={onBack}>← Back</button>
+        <h1 style={{ margin: 0 }}>{name}</h1>
+      </div>
+      <p className="lead">Professors with a found email{d ? ` · ${Number(d.total).toLocaleString()}` : ""}.</p>
+      <div className="card">
+        <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Search name, university or email…" style={{ maxWidth: 360, height: 38, padding: "8px 12px", marginBottom: 14 }} />
+        {loading ? <Loader /> : (d?.rows?.length ? (
+          <table><thead><tr><th>Name</th><th>Email</th><th>University</th><th>Field</th></tr></thead><tbody>
+            {d.rows.map((r: any) => (
+              <tr key={r.openalex_id}>
+                <td><b>{r.name || "—"}</b></td>
+                <td><a href={`mailto:${r.email}`} className="tiny" style={{ color: "var(--acc2)", wordBreak: "break-all" }}>{r.email}</a></td>
+                <td className="mut">{r.institution || "—"}</td>
+                <td className="mut">{r.field || "—"}</td>
+              </tr>
+            ))}
+          </tbody></table>
+        ) : <div className="mut">No professors with an email{q ? " match your search" : " yet"}.</div>)}
+        {pageCount > 1 && (
+          <div className="row" style={{ justifyContent: "center", marginTop: 14, gap: 10 }}>
+            <button className="btn sm sec" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>&larr; Prev</button>
+            <span className="mut">Page {page} of {pageCount}</span>
+            <button className="btn sm sec" disabled={page >= pageCount} onClick={() => setPage((p) => p + 1)}>Next &rarr;</button>
+          </div>
+        )}
       </div>
     </>
   );
