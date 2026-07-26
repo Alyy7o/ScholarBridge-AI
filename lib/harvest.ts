@@ -173,11 +173,11 @@ async function harvestWork(w: any): Promise<Found[]> {
       const used = new Set(Object.values(paired).map((v) => v.email));
       const corr = authors.filter((a) => a.corresponding && !paired[a.id]);
       if (corr.length) {
-        let pool = correspondenceEmails(text, emails).filter((e) => !used.has(e));
-        if (!pool.length) {
-          const free = emails.filter((e) => !used.has(e));
-          if (corr.length === 1 && free.length === 1) pool = free;
-        }
+        // Prefer emails cued by "correspondence"; otherwise fall back to any
+        // still-unused email. Romanized CJK names rarely match the email local
+        // part, so relying only on a name match loses most of these.
+        const cued = correspondenceEmails(text, emails).filter((e) => !used.has(e));
+        const pool = cued.length ? cued : emails.filter((e) => !used.has(e));
         for (let i = 0; i < corr.length && i < pool.length; i++) {
           paired[corr[i].id] = { email: pool[i], score: 3 };
           used.add(pool[i]);
@@ -283,6 +283,10 @@ export async function crawlCountry(admin: SupabaseClient, country: string, curso
   const all: Found[] = [];
   for (const w of works) all.push(...(await harvestWork(w)));
   const stored = await storeEmails(admin, all);
+  // Funnel diagnostics (visible in function logs): how many authors and how many
+  // of them we actually attached an email to.
+  const withEmail = all.filter((f) => f.email).length;
+  console.log(`[harvest] ${country}: ${works.length} papers → ${all.length} authors, ${withEmail} with email, stored ${stored}`);
   return { processed: works.length, stored, next: data.meta?.next_cursor || null };
 }
 

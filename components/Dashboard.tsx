@@ -703,8 +703,8 @@ function Professors({ toast }: any) {
         </div>
       )}
       <div className="card">{loading ? <Loader /> : shown.length ? (
-        <table><thead><tr><th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th><th>Name</th><th>Email</th><th>University/Lab</th><th>Buckets</th><th>Topics / Field</th><th /></tr></thead><tbody>
-          {shown.map((p) => (<tr key={p.id}><td><input type="checkbox" checked={sel.has(p.id)} onChange={() => toggle(p.id)} aria-label={`Select ${p.name}`} /></td><td><b>{p.name}</b></td><td>{p.email}</td><td>{p.university}</td><td>{(p.bucket_ids || []).length ? (p.bucket_ids || []).map((id: string) => <span key={id} className="pill draft" style={{ marginRight: 4 }}>{bucketName(id)}</span>) : <span className="mut tiny">—</span>}</td><td className="mut">{p.topics}</td><td style={{ whiteSpace: "nowrap" }}><button className="btn sm sec" onClick={() => edit(p)}>Edit</button> <button className="btn sm danger" onClick={() => del(p.id)}>Delete</button></td></tr>))}
+        <table><thead><tr><th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th><th style={{ width: 44 }}>#</th><th>Name</th><th>Email</th><th>University/Lab</th><th>Buckets</th><th>Topics / Field</th><th /></tr></thead><tbody>
+          {shown.map((p, i) => (<tr key={p.id}><td><input type="checkbox" checked={sel.has(p.id)} onChange={() => toggle(p.id)} aria-label={`Select ${p.name}`} /></td><td className="mut">{i + 1}</td><td><b>{p.name}</b></td><td>{p.email}</td><td>{p.university}</td><td>{(p.bucket_ids || []).length ? (p.bucket_ids || []).map((id: string) => <span key={id} className="pill draft" style={{ marginRight: 4 }}>{bucketName(id)}</span>) : <span className="mut tiny">—</span>}</td><td className="mut">{p.topics}</td><td style={{ whiteSpace: "nowrap" }}><button className="btn sm sec" onClick={() => edit(p)}>Edit</button> <button className="btn sm danger" onClick={() => del(p.id)}>Delete</button></td></tr>))}
         </tbody></table>) : <div className="mut">{filter ? "No professors in this bucket yet." : "No professors yet."}</div>}</div>
     </>
   );
@@ -865,8 +865,8 @@ function History({ toast }: any) {
       )}
       <div className="card">{loading ? <Loader /> : filtered.length ? (
         <>
-        <table><thead><tr><th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th><th>When</th><th>Recipient</th><th>Subject</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-          {paged.map((e) => {
+        <table><thead><tr><th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th><th style={{ width: 44 }}>#</th><th>When</th><th>Recipient</th><th>Subject</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+          {paged.map((e, i) => {
             const items: Array<{ label: string; onClick: () => void; danger?: boolean }> = [];
             if (e.status === "scheduled") items.push({ label: "Pause", onClick: () => act(e.id, "pause") });
             if (e.status === "paused") items.push({ label: "Resume", onClick: () => act(e.id, "resume") });
@@ -875,6 +875,7 @@ function History({ toast }: any) {
             items.push({ label: "Delete", onClick: () => del(e.id), danger: true });
             return (<tr key={e.id}>
               <td><input type="checkbox" checked={sel.has(e.id)} onChange={() => toggle(e.id)} aria-label="Select email" /></td>
+              <td className="mut">{(pageC - 1) * PER + i + 1}</td>
               <td className="mut">{fmt(e.send_at)}</td>
               <td><b>{e.professor_name || e.email}</b><div className="mut tiny">{e.email}</div></td>
               <td>{e.subject}{e.error && <div className="tiny" style={{ color: "var(--bad)" }}>{e.error}</div>}</td>
@@ -1097,10 +1098,11 @@ function FindProfessors({ toast }: any) {
               </label>
             </div>
             {shown.length ? (
-              <table><thead><tr><th style={{ width: 28 }} /><th>Name</th><th>Institution</th><th>Country</th><th>Topics</th><th>Works</th><th>Cited</th><th>Email</th></tr></thead><tbody>
-                {shown.map((r) => (
+              <table><thead><tr><th style={{ width: 28 }} /><th style={{ width: 44 }}>#</th><th>Name</th><th>Institution</th><th>Country</th><th>Topics</th><th>Works</th><th>Cited</th><th>Email</th></tr></thead><tbody>
+                {shown.map((r, i) => (
                   <tr key={r.openalex_id}>
                     <td><input type="checkbox" checked={!!sel[r.openalex_id]} onChange={() => toggle(r)} /></td>
+                    <td className="mut">{(page - 1) * 25 + i + 1}</td>
                     <td><b>{r.name}</b>{r.orcid ? <div className="mut tiny">ORCID {r.orcid}</div> : null}</td>
                     <td>{r.institution || "—"}</td>
                     <td className="mut">{(r.country || "").toUpperCase()}</td>
@@ -1262,9 +1264,10 @@ function CountryDetail({ code, name, onBack }: any) {
       <div className="card">
         <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Search name, university or email…" style={{ maxWidth: 360, height: 38, padding: "8px 12px", marginBottom: 14 }} />
         {loading ? <Loader /> : (d?.rows?.length ? (
-          <table><thead><tr><th>Name</th><th>Email</th><th>University</th><th>Field</th></tr></thead><tbody>
-            {d.rows.map((r: any) => (
+          <table><thead><tr><th style={{ width: 44 }}>#</th><th>Name</th><th>Email</th><th>University</th><th>Field</th></tr></thead><tbody>
+            {d.rows.map((r: any, i: number) => (
               <tr key={r.openalex_id}>
+                <td className="mut">{(d.page - 1) * d.pageSize + i + 1}</td>
                 <td><b>{r.name || "—"}</b></td>
                 <td><a href={`mailto:${r.email}`} className="tiny" style={{ color: "var(--acc2)", wordBreak: "break-all" }}>{r.email}</a></td>
                 <td className="mut">{r.institution || "—"}</td>
