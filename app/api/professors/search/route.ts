@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/supabase";
+import { requireUser, supabaseAdmin } from "@/lib/supabase";
 import { json, err } from "@/lib/http";
 import { searchAuthors } from "@/lib/discover";
 
@@ -18,6 +18,22 @@ export async function POST(req: Request) {
       query: String(b.query || "").trim() || undefined,
       page: Number(b.page) || 1,
     });
+
+    // Attach any emails we already harvested — one batch lookup, so the table
+    // can show contactable professors instantly instead of a per-row "Find".
+    const ids = (results || []).map((r: any) => r.openalex_id).filter(Boolean);
+    if (ids.length) {
+      const { data: cached } = await supabaseAdmin()
+        .from("professor_emails")
+        .select("openalex_id,email,confidence")
+        .in("openalex_id", ids);
+      const map = new Map((cached || []).map((c: any) => [c.openalex_id, c]));
+      for (const r of results as any[]) {
+        const c = map.get(r.openalex_id);
+        if (c?.email) { r.email = c.email; r.email_confidence = c.confidence; }
+      }
+    }
+
     return json({ results, total, debug });
   } catch (e) {
     return err((e as Error).message || "Search failed", 502);

@@ -177,10 +177,17 @@ export default function Dashboard() {
   }, [theme]);
 
   const props = { toast: showToast, setFoot, go: setSection };
-  const Body = {
+  const TABS: Record<string, React.FC<any>> = {
     dashboard: DashboardHome, compose: Compose, professors: Professors, find: FindProfessors,
     templates: Templates, attachments: Attachments, history: History, emails: EmailHarvest, settings: Settings,
-  }[section] as React.FC<any>;
+  };
+  // Keep-alive: once a tab is opened, keep it mounted and just toggle its
+  // visibility. This preserves each tab's state (search results, in-memory file
+  // uploads, form inputs) across tab switches and avoids refetching on return.
+  const [visited, setVisited] = useState<Set<string>>(() => new Set([section]));
+  useEffect(() => {
+    setVisited((v) => (v.has(section) ? v : new Set(v).add(section)));
+  }, [section]);
 
   return (
     <div className="app">
@@ -209,7 +216,15 @@ export default function Dashboard() {
           </button>
         </div>
       </aside>
-      <main className="main"><Body {...props} /></main>
+      <main className="main">
+        {Object.entries(TABS).map(([id, Comp]) =>
+          visited.has(id) ? (
+            <div key={id} style={{ display: id === section ? "block" : "none" }}>
+              <Comp {...props} />
+            </div>
+          ) : null,
+        )}
+      </main>
       {toast && <div className="toast">{toast}</div>}
     </div>
   );
@@ -940,6 +955,7 @@ function FindProfessors({ toast }: any) {
   const [emails, setEmails] = useState<Record<string, { loading?: boolean; email?: string | null }>>({});
   const [adding, setAdding] = useState(false);
   const [needsEmail, setNeedsEmail] = useState<any[]>([]);
+  const [onlyEmail, setOnlyEmail] = useState(false);
   const [buckets, setBuckets] = useState<any[]>([]);
   const [addBucket, setAddBucket] = useState("");
   const [newName, setNewName] = useState("");
@@ -967,7 +983,14 @@ function FindProfessors({ toast }: any) {
     setBusy(true); setStatus("Searching…"); setPage(p);
     try {
       const j = await api("/api/professors/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ country, institutionId: inst.id, conceptIds: concepts.map((c) => c.id), query, page: p }) });
-      setResults(j.results || []); setTotal(j.total || 0); setStatus(`${j.total} researcher(s) found`);
+      const rows = j.results || [];
+      setResults(rows); setTotal(j.total || 0);
+      // Pre-fill emails we already have cached so they show inline right away.
+      const seeded: Record<string, { loading?: boolean; email?: string | null }> = {};
+      let withEmail = 0;
+      for (const r of rows) if (r.email) { seeded[r.openalex_id] = { loading: false, email: r.email }; withEmail++; }
+      setEmails(seeded);
+      setStatus(`${j.total} researcher(s) found${withEmail ? ` · ${withEmail} with email on this page` : ""}`);
     } catch (e: any) { setStatus("Error: " + e.message); }
     setBusy(false);
   };
@@ -1063,26 +1086,40 @@ function FindProfessors({ toast }: any) {
         </div>
       )}
 
-      <div className="card">{busy ? <Loader /> : results.length ? (
-        <table><thead><tr><th style={{ width: 28 }} /><th>Name</th><th>Institution</th><th>Country</th><th>Topics</th><th>Works</th><th>Cited</th><th>Email</th></tr></thead><tbody>
-          {results.map((r) => (
-            <tr key={r.openalex_id}>
-              <td><input type="checkbox" checked={!!sel[r.openalex_id]} onChange={() => toggle(r)} /></td>
-              <td><b>{r.name}</b>{r.orcid ? <div className="mut tiny">ORCID {r.orcid}</div> : null}</td>
-              <td>{r.institution || "—"}</td>
-              <td className="mut">{(r.country || "").toUpperCase()}</td>
-              <td className="mut" style={{ maxWidth: 240 }}>{r.topics}</td>
-              <td>{r.works_count}</td>
-              <td>{r.cited_by_count}</td>
-              <td>{(() => {
-                const em = emails[r.openalex_id];
-                if (!em) return <button className="btn sm sec" onClick={() => findEmail(r)}>Find</button>;
-                if (em.loading) return <span className="mut tiny">Searching…</span>;
-                return em.email ? <a href={`mailto:${em.email}`} className="tiny" style={{ color: "var(--acc2)", wordBreak: "break-all" }}>{em.email}</a> : <span className="mut tiny">Not found</span>;
-              })()}</td>
-            </tr>
-          ))}
-        </tbody></table>) : <div className="mut">No results yet — set filters and search.</div>}</div>
+      <div className="card">{busy ? <Loader /> : results.length ? (() => {
+        const shown = onlyEmail ? results.filter((r) => emails[r.openalex_id]?.email) : results;
+        return (
+          <>
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
+              <span className="mut tiny">{shown.length} shown{onlyEmail ? " · with email" : ""}</span>
+              <label className="chk" style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }}>
+                <input type="checkbox" checked={onlyEmail} onChange={(e) => setOnlyEmail(e.target.checked)} /> Only professors with an email
+              </label>
+            </div>
+            {shown.length ? (
+              <table><thead><tr><th style={{ width: 28 }} /><th>Name</th><th>Institution</th><th>Country</th><th>Topics</th><th>Works</th><th>Cited</th><th>Email</th></tr></thead><tbody>
+                {shown.map((r) => (
+                  <tr key={r.openalex_id}>
+                    <td><input type="checkbox" checked={!!sel[r.openalex_id]} onChange={() => toggle(r)} /></td>
+                    <td><b>{r.name}</b>{r.orcid ? <div className="mut tiny">ORCID {r.orcid}</div> : null}</td>
+                    <td>{r.institution || "—"}</td>
+                    <td className="mut">{(r.country || "").toUpperCase()}</td>
+                    <td className="mut" style={{ maxWidth: 240 }}>{r.topics}</td>
+                    <td>{r.works_count}</td>
+                    <td>{r.cited_by_count}</td>
+                    <td>{(() => {
+                      const em = emails[r.openalex_id];
+                      if (!em) return <button className="btn sm sec" onClick={() => findEmail(r)}>Find</button>;
+                      if (em.loading) return <span className="mut tiny">Searching…</span>;
+                      return em.email ? <a href={`mailto:${em.email}`} className="tiny" style={{ color: "var(--acc2)", wordBreak: "break-all" }}>{em.email}</a> : <span className="mut tiny">Not found</span>;
+                    })()}</td>
+                  </tr>
+                ))}
+              </tbody></table>
+            ) : <div className="mut">No professors with an email on this page yet. Click Find on a row, or turn off the filter.</div>}
+          </>
+        );
+      })() : <div className="mut">No results yet — set filters and search.</div>}</div>
 
       {results.length > 0 && (
         <div className="row" style={{ justifyContent: "center", marginTop: 8 }}>
@@ -1134,6 +1171,10 @@ function EmailHarvest({ toast }: any) {
     await api("/api/admin/harvest/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reset: c }) });
     load();
   };
+  const pauseResume = async (c: string, paused: boolean) => {
+    await api("/api/admin/harvest/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(paused ? { resume: c } : { pause: c }) });
+    load();
+  };
   if (!d) return <Loader page />;
   return (
     <>
@@ -1153,13 +1194,18 @@ function EmailHarvest({ toast }: any) {
           <div className="card" key={c.country} style={{ marginBottom: 0 }}>
             <div className="row" style={{ justifyContent: "space-between" }}>
               <b>{CC_NAMES[c.country] || c.country.toUpperCase()}</b>
-              <span className={`pill ${c.status === "done" ? "sent" : c.status === "running" ? "scheduled" : "draft"}`}>{c.status}</span>
+              <span className={`pill ${c.status === "done" ? "sent" : c.status === "running" ? "scheduled" : c.status === "paused" ? "danger" : "draft"}`}>{c.status}</span>
             </div>
             <div className="row" style={{ gap: 20, marginTop: 12 }}>
               <div><div style={{ fontSize: 22, fontWeight: 800 }}>{Number(c.cached || 0).toLocaleString()}</div><div className="mut tiny">emails cached</div></div>
               <div><div style={{ fontSize: 22, fontWeight: 800 }}>{Number(c.papers || 0).toLocaleString()}</div><div className="mut tiny">papers scanned</div></div>
             </div>
             <div className="row" style={{ marginTop: 12, gap: 10 }}>
+              {c.status !== "done" && (
+                <button className="btn sm sec" onClick={() => pauseResume(c.country, c.status === "paused")}>
+                  {c.status === "paused" ? "▶ Resume" : "⏸ Pause"}
+                </button>
+              )}
               <button className="btn sm sec" onClick={() => reset(c.country)}>Re-crawl</button>
               {c.updated_at && <span className="mut tiny">updated {fmt(c.updated_at)}</span>}
             </div>

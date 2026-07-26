@@ -4,6 +4,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const OPENALEX = "https://api.openalex.org";
+
+// A country auto-stops (marked "done") once it has scanned this many papers, so
+// one huge country can't hog the crawler forever. Tune via env.
+const COUNTRY_PAPER_CAP = Number(process.env.HARVEST_COUNTRY_CAP || "60000");
 function oaUrl(path: string, params: Record<string, string>): string {
   const p = new URLSearchParams(params);
   const key = process.env.OPENALEX_API_KEY;
@@ -43,7 +47,7 @@ export function extractEmails(text: string): string[] {
   return [...out].filter((e) => !GENERIC.has(e.split("@")[0]));
 }
 
-type OAAuthor = { id: string; name: string; institution: string; country: string };
+type OAAuthor = { id: string; name: string; institution: string; country: string; corresponding: boolean };
 
 function authorsFromWork(w: any): OAAuthor[] {
   return (w.authorships || []).map((a: any) => {
@@ -53,20 +57,51 @@ function authorsFromWork(w: any): OAAuthor[] {
       name: a.author?.display_name || "",
       institution: inst.display_name || "",
       country: inst.country_code || "",
+      corresponding: !!a.is_corresponding,
     };
   }).filter((a: OAAuthor) => a.id && a.name);
 }
 
-/** Score how well an email's local-part matches a person's name. */
+/** Emails that appear right after a "corresponding / e-mail" cue in the text. */
+function correspondenceEmails(text: string, emails: string[]): string[] {
+  const lower = (text || "").toLowerCase();
+  const hits: string[] = [];
+  for (const e of emails) {
+    const i = lower.indexOf(e.toLowerCase());
+    if (i < 0) continue;
+    const ctx = lower.slice(Math.max(0, i - 180), i);
+    if (/correspond|e-?mail|✉|to whom|address for/.test(ctx)) hits.push(e);
+  }
+  return hits;
+}
+
+/** Strip accents so "Müller" matches "muller", "Nguyễn" matches "nguyen", etc. */
+function deaccent(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+/** Score how well an email's local-part matches a person's name. Handles the
+ *  common Western and romanized-CJK patterns: first.last, flast, lastf,
+ *  firstlast, lastfirst, plus bare surname. */
 function score(local: string, name: string): number {
-  const l = local.toLowerCase();
-  const parts = name.toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter(Boolean);
+  const l = deaccent(local).toLowerCase();
+  const parts = deaccent(name).toLowerCase().replace(/[^a-z\s-]/g, " ").split(/[\s-]+/).filter(Boolean);
   if (!parts.length) return 0;
   const last = parts[parts.length - 1];
   const first = parts[0];
+  const fi = first ? first[0] : "";
+  const li = last ? last[0] : "";
   let s = 0;
   if (last.length > 1 && l.includes(last)) s += 5;
-  if (first && last && (l === `${first}.${last}` || l === `${first}${last}` || l === `${first[0]}${last}` || l === `${first[0]}.${last}`)) s += 4;
+  if (first && last) {
+    const combos = [
+      `${first}.${last}`, `${first}${last}`, `${last}${first}`, `${last}.${first}`,
+      `${fi}${last}`, `${fi}.${last}`, `${last}${fi}`, `${last}.${fi}`,
+      `${first}${li}`, `${first}.${li}`,
+    ];
+    if (combos.includes(l)) s += 4;
+    if (last.length > 1 && (l.startsWith(last) || l.endsWith(last))) s += 1;
+  }
   if (first && first.length > 1 && l.includes(first)) s += 2;
   return s;
 }
@@ -100,10 +135,11 @@ async function pageOneText(url: string): Promise<string> {
     if (buf.length > 20 * 1024 * 1024) return ""; // skip huge files
     if ((r.headers.get("content-type") || "").includes("pdf") || url.toLowerCase().endsWith(".pdf")) {
       const pdfParse = (await import("pdf-parse/lib/pdf-parse.js")).default;
-      const parsed = await pdfParse(buf, { max: 1 }); // FIRST PAGE ONLY
-      return (parsed.text || "").slice(0, 8000);
+      // First TWO pages — co-author emails and affiliations often sit on page 2.
+      const parsed = await pdfParse(buf, { max: 2 });
+      return (parsed.text || "").slice(0, 16000);
     }
-    return buf.toString("utf-8").replace(/<[^>]+>/g, " ").slice(0, 8000);
+    return buf.toString("utf-8").replace(/<[^>]+>/g, " ").slice(0, 16000);
   } catch {
     return "";
   }
@@ -111,22 +147,45 @@ async function pageOneText(url: string): Promise<string> {
 
 type Found = { openalex_id: string; name: string; email: string; institution: string; country: string; workId: string; year: number; score: number };
 
-/** Harvest emails from one work's first page, paired to its authors. */
+/** Harvest one work: return EVERY author (so we never lose a professor), with an
+ *  email attached where we can find one on the paper's first pages. */
 async function harvestWork(w: any): Promise<Found[]> {
+  const authors = authorsFromWork(w);
+  if (!authors.length) return [];
+
+  // Best-effort email discovery from the paper's first two pages.
+  let paired: Record<string, { email: string; score: number }> = {};
   const loc = w.best_oa_location || w.primary_location || {};
   const url = (loc.pdf_url as string) || (loc.landing_page_url as string);
-  if (!url) return [];
-  const text = await pageOneText(url);
-  if (!text) return [];
-  const emails = extractEmails(text);
-  if (!emails.length) return [];
-  const authors = authorsFromWork(w);
-  const paired = pairEmailsToAuthors(emails, authors);
+  if (url) {
+    const text = await pageOneText(url);
+    const emails = text ? extractEmails(text) : [];
+    if (emails.length) {
+      paired = pairEmailsToAuthors(emails, authors);
+      // Attribute the corresponding author's email even without a name match:
+      // OpenAlex flags who is corresponding, and the page usually cues it.
+      const used = new Set(Object.values(paired).map((v) => v.email));
+      const corr = authors.filter((a) => a.corresponding && !paired[a.id]);
+      if (corr.length) {
+        let pool = correspondenceEmails(text, emails).filter((e) => !used.has(e));
+        if (!pool.length) {
+          const free = emails.filter((e) => !used.has(e));
+          if (corr.length === 1 && free.length === 1) pool = free;
+        }
+        for (let i = 0; i < corr.length && i < pool.length; i++) {
+          paired[corr[i].id] = { email: pool[i], score: 3 };
+          used.add(pool[i]);
+        }
+      }
+    }
+  }
+
   const year = Number(w.publication_year) || new Date().getFullYear();
   const wid = String(w.id || "").split("/").pop() || "";
-  return Object.entries(paired).map(([aid, v]) => {
-    const a = authors.find((x) => x.id === aid)!;
-    return { openalex_id: aid, name: a.name, email: v.email, institution: a.institution, country: a.country, workId: wid, year, score: v.score };
+  // One record per author — email + score only when found, else blank.
+  return authors.map((a) => {
+    const v = paired[a.id];
+    return { openalex_id: a.id, name: a.name, email: v?.email || "", institution: a.institution, country: a.country, workId: wid, year, score: v?.score || 0 };
   });
 }
 
@@ -144,19 +203,23 @@ export async function storeEmails(admin: SupabaseClient, found: Found[]): Promis
     const works = new Set<string>([...(ex?.source_work_ids || []), f.workId]);
     const seen = works.size;
     const lastYear = Math.max(ex?.last_seen_year || 0, f.year);
-    const strong = f.score >= 5 || seen >= 2 || lastYear >= nowYear - 4;
+    // Never wipe an email we already found; email-less authors are still saved.
+    const email = f.email || ex?.email || "";
+    const hasEmail = !!email;
+    const score = f.email ? f.score : 0;
+    const strong = hasEmail && (score >= 5 || seen >= 2 || lastYear >= nowYear - 4);
     return {
       openalex_id: f.openalex_id,
       name: f.name || ex?.name || "",
-      email: f.email,
-      domain: f.email.split("@")[1] || "",
+      email: email || null,
+      domain: hasEmail ? (email.split("@")[1] || "") : "",
       institution: f.institution || ex?.institution || "",
       country: (f.country || ex?.country || "").toLowerCase(),
       source_work_ids: [...works],
       times_seen: seen,
       first_seen_year: ex?.first_seen_year || f.year,
       last_seen_year: lastYear,
-      confidence: strong ? "high" : "low",
+      confidence: hasEmail ? (strong ? "high" : "low") : "none",
       updated_at: new Date().toISOString(),
     };
   });
@@ -190,10 +253,10 @@ export async function harvestForAuthor(admin: SupabaseClient, authorId: string, 
   for (const w of works) {
     const f = await harvestWork(w);
     all.push(...f);
-    if (f.some((x) => x.openalex_id === authorId)) break; // got the target, stop early
+    if (f.some((x) => x.openalex_id === authorId && x.email)) break; // got the target's EMAIL, stop early
   }
   await storeEmails(admin, all);
-  const mine = all.filter((x) => x.openalex_id === authorId).sort((a, b) => b.score - a.score)[0];
+  const mine = all.filter((x) => x.openalex_id === authorId && x.email).sort((a, b) => b.score - a.score)[0];
   if (mine) return { email: mine.email, confidence: mine.score >= 5 ? "high" : "low" };
   return { email: null, confidence: null };
 }
@@ -216,30 +279,43 @@ export async function crawlCountry(admin: SupabaseClient, country: string, curso
 }
 
 /**
- * Background tick: advance the active crawl by one page. Picks the first country
- * in the control order that isn't done, crawls a page from its saved cursor, and
- * persists progress. Intended to be called ~every minute by a cron.
+ * Background tick: advance the active crawl by one page. Countries are crawled
+ * ROUND-ROBIN — each tick picks the least-recently-crawled country that isn't
+ * done — so every country progresses in parallel instead of one huge country
+ * (e.g. China) monopolizing the crawler forever. Intended to be called ~every
+ * minute by a cron.
  */
-export async function tick(admin: SupabaseClient): Promise<{ idle?: boolean; done?: boolean; country?: string; processed?: number; stored?: number }> {
+export async function tick(admin: SupabaseClient): Promise<{ idle?: boolean; done?: boolean; country?: string; processed?: number; stored?: number; capped?: boolean }> {
   const { data: ctrl } = await admin.from("harvest_control").select("*").eq("id", 1).maybeSingle();
   if (!ctrl?.active) return { idle: true };
   const order: string[] = ctrl.order_list || ["cn", "jp", "kr", "tw", "sg"];
 
   const { data: states } = await admin.from("harvest_state").select("*").in("country", order);
   const byC = new Map((states || []).map((s: any) => [s.country, s]));
-  const next = order.find((c) => (byC.get(c)?.status || "pending") !== "done");
-  if (!next) return { done: true };
+
+  // Every country that still has pages left, rotated so the one waiting longest
+  // (oldest updated_at; never-crawled counts as oldest) goes next.
+  // Skip countries that are done OR paused; rotate the rest by oldest updated_at.
+  const pending = order.filter((c) => {
+    const s = byC.get(c)?.status || "pending";
+    return s !== "done" && s !== "paused";
+  });
+  if (!pending.length) return { done: true };
+  pending.sort((a, b) => String(byC.get(a)?.updated_at || "").localeCompare(String(byC.get(b)?.updated_at || "")));
+  const next = pending[0];
 
   const st: any = byC.get(next) || { country: next, cursor: "*", papers: 0, emails: 0 };
   const r = await crawlCountry(admin, next, st.cursor || "*");
-  const done = !r.next || r.processed === 0;
+  const totalPapers = (st.papers || 0) + r.processed;
+  // A country stops (status "done") when it runs out of pages OR reaches the cap.
+  const done = !r.next || r.processed === 0 || totalPapers >= COUNTRY_PAPER_CAP;
   await admin.from("harvest_state").upsert({
     country: next,
     cursor: r.next || st.cursor || "*",
     status: done ? "done" : "running",
-    papers: (st.papers || 0) + r.processed,
+    papers: totalPapers,
     emails: (st.emails || 0) + r.stored,
     updated_at: new Date().toISOString(),
   }, { onConflict: "country" });
-  return { country: next, processed: r.processed, stored: r.stored, done };
+  return { country: next, processed: r.processed, stored: r.stored, done, capped: done && totalPapers >= COUNTRY_PAPER_CAP };
 }

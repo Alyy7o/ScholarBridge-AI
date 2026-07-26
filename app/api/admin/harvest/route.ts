@@ -29,7 +29,11 @@ export async function POST(req: Request) {
   const cursor = String(b.cursor || "*");
   if (!/^[a-z]{2}$/.test(country)) return err("country must be a 2-letter ISO code, e.g. cn");
   try {
-    const r = await crawlCountry(supabaseAdmin(), country, cursor);
+    const admin = supabaseAdmin();
+    // Honor a per-country pause from any entry point (script / cron / manual).
+    const { data: state } = await admin.from("harvest_state").select("status").eq("country", country).maybeSingle();
+    if (state?.status === "paused") return json({ country, skipped: "paused", processed: 0, stored: 0, next: null });
+    const r = await crawlCountry(admin, country, cursor);
     return json({ country, ...r });
   } catch (e) {
     return err((e as Error).message || "Crawl failed", 502);

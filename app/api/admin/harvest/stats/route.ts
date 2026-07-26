@@ -11,7 +11,9 @@ export async function GET() {
   const [{ data: ctrl }, { data: states }, { count: total }, { count: high }] = await Promise.all([
     admin.from("harvest_control").select("*").eq("id", 1).maybeSingle(),
     admin.from("harvest_state").select("*"),
-    admin.from("professor_emails").select("*", { count: "exact", head: true }),
+    // Only rows with an actual email count as "cached" (email-less professors are
+    // still saved, but shouldn't inflate the emails number).
+    admin.from("professor_emails").select("*", { count: "exact", head: true }).not("email", "is", null),
     admin.from("professor_emails").select("*", { count: "exact", head: true }).eq("confidence", "high"),
   ]);
   const order: string[] = ctrl?.order_list || ["cn", "jp", "kr", "tw", "sg"];
@@ -19,7 +21,7 @@ export async function GET() {
   // Per-country cached-email counts.
   const perCountry: Record<string, number> = {};
   for (const c of order) {
-    const { count } = await admin.from("professor_emails").select("*", { count: "exact", head: true }).eq("country", c);
+    const { count } = await admin.from("professor_emails").select("*", { count: "exact", head: true }).eq("country", c).not("email", "is", null);
     perCountry[c] = count || 0;
   }
   return json({
