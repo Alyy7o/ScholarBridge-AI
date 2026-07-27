@@ -144,10 +144,31 @@ function EmailTester({ toast }: any) {
   );
 }
 
-const SECTIONS: [string, string, string][] = [
-  ["dashboard", "Dashboard", "▨"], ["compose", "Compose", "✎"], ["professors", "Professors", "👤"], ["find", "Find Professors", "🔎"],
-  ["templates", "Templates", "▤"], ["attachments", "Attachments", "📎"], ["history", "Schedule & History", "🗓"], ["emails", "Email cache", "📇"], ["settings", "Settings", "⚙"],
+// Outlined line icons (stroke, no fill) to match the SENTRA look.
+const I = (d: React.ReactNode) => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{d}</svg>
+);
+const NAV_ICONS: Record<string, React.ReactNode> = {
+  dashboard: I(<><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>),
+  emails: I(<><path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="m3 8 9 6 9-6" /></>),
+  find: I(<><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></>),
+  professors: I(<><path d="M20 21a8 8 0 1 0-16 0" /><circle cx="12" cy="7" r="4" /></>),
+  compose: I(<><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></>),
+  templates: I(<><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></>),
+  attachments: I(<path d="M21.4 11.05 12.25 20.2a5 5 0 0 1-7.07-7.07l9.19-9.19a3 3 0 0 1 4.24 4.24l-9.2 9.19a1 1 0 0 1-1.41-1.41l8.48-8.49" />),
+  history: I(<><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></>),
+  settings: I(<><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.2.61.78 1.03 1.42 1.03H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></>),
+};
+// Sidebar items (Settings is reachable from the account menu, not the sidebar).
+const SECTIONS: [string, string][] = [
+  ["dashboard", "Dashboard"], ["emails", "Email Mining"], ["find", "Find Professors"], ["professors", "Professors"],
+  ["compose", "Compose"], ["templates", "Templates"], ["attachments", "Attachments"], ["history", "Schedule & History"],
 ];
+// Titles for the navbar (includes settings, which isn't in the sidebar).
+const TITLES: Record<string, string> = {
+  dashboard: "Dashboard", emails: "Email Mining", find: "Find Professors", professors: "Professors",
+  compose: "Compose", templates: "Templates", attachments: "Attachments", history: "Schedule & History", settings: "Settings",
+};
 
 export default function Dashboard() {
   const [section, setSection] = useState("dashboard");
@@ -189,41 +210,57 @@ export default function Dashboard() {
     setVisited((v) => (v.has(section) ? v : new Set(v).add(section)));
   }, [section]);
 
+  const title = TITLES[section] || "Dashboard";
+
   return (
     <div className="app">
       <aside className="side">
         <div className="brand"><div className="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 1 8l11 5 9-4.09V15h2V8L12 3zM5 13.18v3.5C5 18.5 8.13 20 12 20s7-1.5 7-3.32v-3.5l-7 3.18-7-3.18z" /></svg></div><div><b>ScholarBridge</b><span>AI outreach scheduler</span></div></div>
         <nav className="nav">
-          {SECTIONS.map(([id, label, ic]) => (
-            <button key={id} className={id === section ? "on" : ""} onClick={() => setSection(id)}><span>{ic}</span> {label}</button>
+          {SECTIONS.map(([id, label]) => (
+            <button key={id} className={id === section ? "on" : ""} onClick={() => setSection(id)}>
+              <span className="nav-ic">{NAV_ICONS[id]}</span> {label}
+            </button>
           ))}
         </nav>
-        <div className="side-account">
-          {acctOpen && (
-            <>
-              <button type="button" aria-hidden className="tpf-backdrop" onClick={() => setAcctOpen(false)} />
-              <div className="side-acct-menu">
-                <div className="sam-info">{me.email || "Signed in"}</div>
-                <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? "☀️  Light mode" : "🌙  Dark mode"}</button>
-                <button onClick={signOut}>⎋  Sign out</button>
-              </div>
-            </>
-          )}
-          <button type="button" className="side-acct-btn" onClick={() => setAcctOpen((o) => !o)}>
-            <span className="side-avatar">{(me.name || "?").slice(0, 1).toUpperCase()}</span>
-            <span className="side-acct-name">{me.name || "Account"}</span>
-            <span style={{ marginLeft: "auto", opacity: 0.6 }}>▾</span>
-          </button>
-        </div>
       </aside>
-      <main className="main">
-        {Object.entries(TABS).map(([id, Comp]) =>
-          visited.has(id) ? (
-            <div key={id} style={{ display: id === section ? "block" : "none" }}>
-              <Comp {...props} />
-            </div>
-          ) : null,
-        )}
+      <main className="main" style={{ padding: 0 }}>
+        {/* Top navbar */}
+        <div className="navbar">
+          <div className="nav-title">{title}</div>
+          <div className="nav-right">
+            <button className="icon-btn" title={theme === "dark" ? "Light mode" : "Dark mode"} onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+              {theme === "dark"
+                ? <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5 3.5 3.5M20.5 20.5 19 19M19 5l1.5-1.5M3.5 20.5 5 19" /></svg>
+                : <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></svg>}
+            </button>
+            <button className="acct-btn" onClick={() => setAcctOpen((o) => !o)}>
+              <span className="acct-avatar">{(me.name || "?").slice(0, 1).toUpperCase()}</span>
+              {me.name || "Account"}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6" /></svg>
+            </button>
+            {acctOpen && (
+              <>
+                <button type="button" aria-hidden className="tpf-backdrop" onClick={() => setAcctOpen(false)} />
+                <div className="acct-menu">
+                  <div className="am-email">{me.email || "Signed in"}</div>
+                  <button onClick={() => { setSection("settings"); setAcctOpen(false); }}>{NAV_ICONS.settings} Settings</button>
+                  <button onClick={signOut}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg> Sign out</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div style={{ padding: "24px 26px" }}>
+          {Object.entries(TABS).map(([id, Comp]) =>
+            visited.has(id) ? (
+              <div key={id} style={{ display: id === section ? "block" : "none" }}>
+                <Comp {...props} />
+              </div>
+            ) : null,
+          )}
+        </div>
       </main>
       {toast && <div className="toast">{toast}</div>}
     </div>
@@ -231,30 +268,97 @@ export default function Dashboard() {
 }
 
 /* ---------- Dashboard home ---------- */
-function DashboardHome({ setFoot, go }: any) {
+const DIC = {
+  scheduled: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>,
+  sent: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4z" /><path d="M22 2 11 13" /></svg>,
+  failed: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="m15 9-6 6M9 9l6 6" /></svg>,
+  quota: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9" /><path d="M12 7v5l3 2" /></svg>,
+  total: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="m3 8 9 6 9-6" /></svg>,
+  papers: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M8 13h8M8 17h6" /></svg>,
+};
+function DashboardHome({ go }: any) {
   const [d, setD] = useState<any>(null);
-  const load = () => api("/api/dashboard").then((x) => { setD(x); setFoot(x.gmail.connected ? `Gmail: ${x.gmail.email || "connected"}` : "Gmail: dry-run"); });
-  useEffect(() => { load(); }, []);
-  const processDue = async () => { const r = await api("/api/process-due", { method: "POST" }); alert(`Processed ${r.processed} · sent ${r.sent}${r.dry_run ? " (dry-run)" : ""}`); load(); };
+  const [mine, setMine] = useState<any>(null);
+  useEffect(() => {
+    api("/api/dashboard").then(setD).catch(() => {});
+    api("/api/admin/harvest/stats").then(setMine).catch(() => {});
+  }, []);
   if (!d) return <Loader page />;
   const s = d.stats;
-  const stat = (n: number, l: string) => (<div className="stat"><div className="n">{n}</div><div className="l">{l}</div></div>);
+  const card = (icon: React.ReactNode, n: number, l: string) => (
+    <div className="dash-card" onClick={() => go("history")}>
+      <div className="dc-top"><span className="dc-ic">{icon}</span></div>
+      <div><div className="dc-n">{Number(n).toLocaleString()}</div><div className="dc-l">{l}</div></div>
+    </div>
+  );
+
+  // Simple bar graph of the pipeline.
+  const bars = [
+    { label: "Scheduled", val: s.scheduled }, { label: "Sent", val: s.sent },
+    { label: "Failed", val: s.failed }, { label: "Paused", val: s.paused }, { label: "Drafts", val: s.draft },
+  ];
+  const max = Math.max(1, ...bars.map((b) => b.val));
+
   return (
     <>
-      <h1>Dashboard</h1><p className="lead">Overview of your outreach pipeline.</p>
-      <div className="grid g4">{stat(s.scheduled, "Scheduled")}{stat(s.sent, "Sent")}{stat(s.failed, "Failed")}{stat(s.remaining_quota, "Quota left")}</div>
-      <div className="grid g3" style={{ marginTop: 14 }}>{stat(s.paused, "Paused")}{stat(s.draft, "Drafts")}{stat(s.total, "Total emails")}</div>
-      <div className="card" style={{ marginTop: 16 }}>
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <div><b>AI personalization</b><div className="mut">{d.ai_enabled ? "ON — DeepSeek via OpenRouter" : "OFF — offline fallback (set OPENROUTER_API_KEY)"}</div></div>
-          <span className={`pill ${d.ai_enabled ? "on" : "off"}`}>{d.ai_enabled ? "ON" : "OFF"}</span>
-        </div>
-        <div className="row" style={{ justifyContent: "space-between", marginTop: 12 }}>
-          <div><b>Gmail sending</b><div className="mut">{d.gmail.connected ? `Connected as ${d.gmail.email || "—"}` : "Not connected — sends run in dry-run mode"}</div></div>
-          <span className={`pill ${d.gmail.connected ? "on" : "off"}`}>{d.gmail.connected ? "CONNECTED" : "DRY-RUN"}</span>
+      <div className="dash-grid">
+        {card(DIC.scheduled, s.scheduled, "Scheduled")}
+        {card(DIC.sent, s.sent, "Sent")}
+        {card(DIC.failed, s.failed, "Failed")}
+        {card(DIC.quota, s.remaining_quota, "Quota left")}
+      </div>
+
+      <div className="graph-card" style={{ marginTop: 16 }}>
+        <b>Pipeline overview</b>
+        <div className="bars">
+          {bars.map((b) => (
+            <div className="bar-col" key={b.label}>
+              <div className="bar-val">{b.val}</div>
+              <div className="bar" style={{ height: `${Math.round((b.val / max) * 100)}%` }} />
+              <div className="bar-lbl">{b.label}</div>
+            </div>
+          ))}
         </div>
       </div>
-      <div className="row"><button className="btn sec sm" onClick={processDue}>Process due now</button><span className="mut">Sends emails whose time has passed.</span></div>
+
+      {mine && (() => {
+        const totalEmails = Number(mine.total || 0);
+        const totalPapers = (mine.countries || []).reduce((a: number, c: any) => a + Number(c.papers || 0), 0);
+        const gbars = (mine.countries || []).filter((c: any) => c.cached > 0).sort((a: any, b: any) => b.cached - a.cached).slice(0, 6);
+        const gmax = Math.max(1, ...gbars.map((c: any) => Number(c.cached)));
+        return (
+          <>
+            <div className="row" style={{ justifyContent: "space-between", margin: "22px 0 12px" }}>
+              <b style={{ fontSize: 16 }}>Email mining</b>
+              <button className="btn sm sec" onClick={() => go("emails")}>Open Email Mining →</button>
+            </div>
+            <div className="dash-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 220px))" }}>
+              <div className="dash-card" onClick={() => go("emails")}>
+                <div className="dc-top"><span className="dc-ic">{DIC.total}</span></div>
+                <div><div className="dc-n">{totalEmails.toLocaleString()}</div><div className="dc-l">Emails mined</div></div>
+              </div>
+              <div className="dash-card" onClick={() => go("emails")}>
+                <div className="dc-top"><span className="dc-ic">{DIC.papers}</span></div>
+                <div><div className="dc-n">{totalPapers.toLocaleString()}</div><div className="dc-l">Papers scanned</div></div>
+              </div>
+            </div>
+            {gbars.length > 0 && (
+              <div className="graph-card" style={{ marginTop: 16 }}>
+                <b>Emails by country</b>
+                <div className="bars">
+                  {gbars.map((c: any) => (
+                    <div className="bar-col" key={c.country}>
+                      <div className="bar-val">{Number(c.cached).toLocaleString()}</div>
+                      <div className="bar" style={{ height: `${Math.round((Number(c.cached) / gmax) * 100)}%` }} />
+                      <div className="bar-lbl">{cname(c.country)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
     </>
   );
 }
@@ -428,7 +532,7 @@ function Compose({ toast, go }: any) {
 
   return (
     <>
-      <h1>Compose</h1><p className="lead">Draft and preview emails, then schedule them into your time slots.</p>
+      <p className="lead">Draft and preview emails, then schedule them into your time slots.</p>
       <div className="tabs">
         {[["ai", "AI Personalization"], ["ready_doc", "Ready email import"], ["excel_ready", "Excel ready"]].map(([m, l]) => (
           <button key={m} className={mode === m ? "on" : ""} onClick={() => { setMode(m); setPreview([]); setFile(null); }}>{l}</button>
@@ -663,7 +767,7 @@ function Professors({ toast }: any) {
 
   return (
     <>
-      <h1>Professors</h1><p className="lead">Upload a spreadsheet or add manually, and sort professors into buckets you can target when composing. A &ldquo;Field&rdquo; or &ldquo;Area&rdquo; column is read as the professor&rsquo;s topics.</p>
+      <p className="lead">Upload a spreadsheet or add manually, and sort professors into buckets you can target when composing. A &ldquo;Field&rdquo; or &ldquo;Area&rdquo; column is read as the professor&rsquo;s topics.</p>
       <div className="card">
         <label>Add to bucket</label>
         <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
@@ -721,7 +825,7 @@ function Templates({ toast }: any) {
   const del = async (id: string) => { await api("/api/templates/" + id, { method: "DELETE" }); load(); };
   return (
     <>
-      <h1>Templates</h1><p className="lead">Variables: {"{{professor_last_name}}, {{university}}, {{topics}}, {{personalized}}, {{your_name}}"}</p>
+      <p className="lead">Variables: {"{{professor_last_name}}, {{university}}, {{topics}}, {{personalized}}, {{your_name}}"}</p>
       <div className="grid g2">
         <div className="card"><b>{ed.id ? "Edit" : "New"} template</b>
           <label style={{ marginTop: 10 }}>Name</label><input value={ed.name} onChange={(e) => setEd({ ...ed, name: e.target.value })} />
@@ -750,7 +854,7 @@ function Attachments() {
   const del = async (id: string) => { await api("/api/attachments/" + id, { method: "DELETE" }); load(); };
   return (
     <>
-      <h1>Attachments</h1><p className="lead">Upload your CV, SOP or research proposal — attach them when scheduling.</p>
+      <p className="lead">Upload your CV, SOP or research proposal — attach them when scheduling.</p>
       <div className="card">
         <label>Type</label>
         <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ maxWidth: 220 }}><option value="cv">CV</option><option value="sop">SOP</option><option value="proposal">Research proposal</option><option value="other">Other</option></select>
@@ -824,7 +928,7 @@ function History({ toast }: any) {
   const allChecked = paged.length > 0 && paged.every((e) => sel.has(e.id));
   return (
     <>
-      <h1>Schedule &amp; History</h1><p className="lead">Every drafted, scheduled, sent and failed email — with full control.</p>
+      <p className="lead">Every drafted, scheduled, sent and failed email — with full control.</p>
       <div className="row" style={{ marginBottom: 16, gap: 8 }}>
         <button className="btn sm sec" onClick={() => allAct("pause")}>Pause all</button>
         <button className="btn sm sec" onClick={() => allAct("resume")}>Resume all</button>
@@ -1027,7 +1131,7 @@ function FindProfessors({ toast }: any) {
 
   return (
     <>
-      <h1>Find Professors</h1><p className="lead">Search researchers by country, university and field, then add them to your list. Emails are pulled from their published papers where available.</p>
+      <p className="lead">Search researchers by country, university and field, then add them to your list. Emails are pulled from their published papers where available.</p>
       <div className="card">
         <div className="grid g2">
           <div><label>Country</label><select value={country} onChange={(e) => setCountry(e.target.value)}>{COUNTRIES.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></div>
@@ -1148,6 +1252,7 @@ function EmailHarvest({ toast }: any) {
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [openCountry, setOpenCountry] = useState<string | null>(null);
+  const [menuC, setMenuC] = useState<string | null>(null);
   const load = () => api("/api/admin/harvest/stats").then(setD).catch(() => {});
   useEffect(() => { load(); }, []);
   useEffect(() => {
@@ -1193,43 +1298,42 @@ function EmailHarvest({ toast }: any) {
 
   return (
     <>
-      <h1>Email cache</h1><p className="lead">Builds a shared professor-email database by scraping the first page of their open-access papers.</p>
-      <div className="grid g3" style={{ marginBottom: 16 }}>
-        <div className="stat"><div className="n">{Number(d.total || 0).toLocaleString()}</div><div className="l">Emails cached</div></div>
-        <div className="stat"><div className="n">{Number(d.high || 0).toLocaleString()}</div><div className="l">High confidence</div></div>
-        <div className="stat"><div className="n" style={{ color: d.active ? "var(--acc)" : "var(--mut)" }}>{d.active ? "Running" : "Paused"}</div><div className="l">Background crawl</div></div>
-      </div>
+      <p className="lead">Mines professor emails from open-access papers, country by country. Click a country to view its professors.</p>
       <div className="card" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <Toggle checked={!!d.active} onChange={toggle} label={d.active ? "Background crawl on" : "Background crawl off"} />
         <button className="btn sm sec" disabled={busy} onClick={runOne}>{busy ? "Running…" : "Run one batch now"}</button>
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search country…" style={{ marginLeft: "auto", maxWidth: 240, height: 38, padding: "8px 12px" }} />
       </div>
 
-      <div className="grid g2">
+      <div className="mine-grid">
         {cards.map((c: any) => (
-          <div className="card" key={c.country} style={{ marginBottom: 0 }}>
-            <div onClick={() => setOpenCountry(c.country)} style={{ cursor: "pointer" }}>
-              <div className="row" style={{ justifyContent: "space-between" }}>
-                <b>{cname(c.country)}</b>
-                <span className={`pill ${c.status === "done" ? "sent" : c.status === "running" ? "scheduled" : c.status === "paused" ? "danger" : "draft"}`}>{c.priority ? c.status : "found"}</span>
-              </div>
-              <div className="row" style={{ gap: 20, marginTop: 12 }}>
-                <div><div style={{ fontSize: 22, fontWeight: 800 }}>{Number(c.cached || 0).toLocaleString()}</div><div className="mut tiny">emails cached</div></div>
-                {c.priority && <div><div style={{ fontSize: 22, fontWeight: 800 }}>{Number(c.papers || 0).toLocaleString()}</div><div className="mut tiny">papers scanned</div></div>}
-              </div>
-              <div className="tiny" style={{ marginTop: 8, color: "var(--acc2)", fontWeight: 600 }}>View professors →</div>
-            </div>
+          <div className="mine-card" key={c.country} onClick={() => setOpenCountry(c.country)}>
+            <div className="mc-name">{cname(c.country)}</div>
             {c.priority && (
-              <div className="row" style={{ marginTop: 12, gap: 10 }}>
-                {c.status !== "done" && (
-                  <button className="btn sm sec" onClick={() => pauseResume(c.country, c.status === "paused")}>
-                    {c.status === "paused" ? "▶ Resume" : "⏸ Pause"}
-                  </button>
+              <div className="mine-kebab" onClick={(e) => e.stopPropagation()}>
+                <button className="kebab" onClick={() => setMenuC(menuC === c.country ? null : c.country)}>⋮</button>
+                {menuC === c.country && (
+                  <>
+                    <div onClick={() => setMenuC(null)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                    <div className="menu">
+                      <button onClick={() => { setMenuC(null); reset(c.country); }}>↻ Re-crawl</button>
+                      {c.status !== "done" && (
+                        <button onClick={() => { setMenuC(null); pauseResume(c.country, c.status === "paused"); }}>
+                          {c.status === "paused" ? "▶ Resume" : "⏸ Pause"}
+                        </button>
+                      )}
+                    </div>
+                  </>
                 )}
-                <button className="btn sm sec" onClick={() => reset(c.country)}>Re-crawl</button>
-                {c.updated_at && <span className="mut tiny">updated {fmt(c.updated_at)}</span>}
               </div>
             )}
+            <div className="mc-foot">
+              <div className="mc-stats">
+                <div className="mc-emails"><b>{Number(c.cached || 0).toLocaleString()}</b><span>emails</span></div>
+                {c.priority && <div className="mc-emails"><b>{Number(c.papers || 0).toLocaleString()}</b><span>papers</span></div>}
+              </div>
+              <span className={`pill ${c.status === "done" ? "sent" : c.status === "running" ? "scheduled" : c.status === "paused" ? "danger" : "draft"}`}>{c.priority ? c.status : "found"}</span>
+            </div>
           </div>
         ))}
         {cards.length === 0 && <div className="mut">No countries match &ldquo;{search}&rdquo;.</div>}
@@ -1297,7 +1401,7 @@ function Settings({ toast }: any) {
   if (!d) return <Loader page />;
   return (
     <>
-      <h1>Settings</h1><p className="lead">Gmail connection, sender name, sending quota, AI status.</p>
+      <p className="lead">Gmail connection, sender name, and sending quota.</p>
       <div className="card"><div className="row" style={{ justifyContent: "space-between" }}>
         <div><b>Gmail</b><div className="mut">{d.gmail.connected ? `Connected as ${d.gmail.email || "—"}` : "Not connected — sends run in dry-run mode"}</div></div>
         <span className={`pill ${d.gmail.connected ? "on" : "off"}`}>{d.gmail.connected ? "CONNECTED" : "DRY-RUN"}</span></div>
@@ -1306,7 +1410,6 @@ function Settings({ toast }: any) {
       <div className="card"><label>Your name (fills {"{{your_name}}"})</label><div className="row"><input value={name} onChange={(e) => setName(e.target.value)} style={{ maxWidth: 320 }} /></div>
         <label style={{ marginTop: 14 }}>Daily sending quota</label><div className="row"><input type="number" value={quota} onChange={(e) => setQuota(parseInt(e.target.value) || 500)} style={{ maxWidth: 160 }} /><button className="btn sm" onClick={save}>Save</button></div>
         <div className="mut tiny" style={{ marginTop: 8 }}>Used today: {d.stats.sent_today} · remaining: {d.stats.remaining_quota}</div></div>
-      <div className="card"><div className="row" style={{ justifyContent: "space-between" }}><div><b>AI personalization</b><div className="mut">{d.ai_enabled ? "ON" : "OFF — set OPENROUTER_API_KEY"}</div></div><span className={`pill ${d.ai_enabled ? "on" : "off"}`}>{d.ai_enabled ? "ON" : "OFF"}</span></div></div>
       <EmailTester toast={toast} />
    
     </>
