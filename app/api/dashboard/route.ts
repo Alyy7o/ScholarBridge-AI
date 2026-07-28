@@ -34,7 +34,11 @@ export async function GET() {
       daily_quota: quota,
       remaining_quota: Math.max(0, quota - sentToday),
     },
-    gmail: { connected: !!profile?.gmail_refresh_token, email: profile?.gmail_email || null },
+    gmail: {
+      connected: !!profile?.gmail_refresh_token,
+      email: profile?.gmail_email || null,
+      needs_reconnect: !!profile?.gmail_needs_reconnect,
+    },
     ai_enabled: !!process.env.OPENROUTER_API_KEY,
     templates: templates || 0,
     professors: professors || 0,

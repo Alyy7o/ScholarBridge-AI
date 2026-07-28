@@ -17,7 +17,12 @@ export async function GET(req: Request) {
         email: s.user.email,
         gmail_email: s.user.email,
       };
-      if (s.provider_refresh_token) patch.gmail_refresh_token = s.provider_refresh_token;
+      // A fresh refresh token means the connection is healthy again — clear the
+      // "needs reconnect" flag so the warning banner disappears.
+      if (s.provider_refresh_token) {
+        patch.gmail_refresh_token = s.provider_refresh_token;
+        patch.gmail_needs_reconnect = false;
+      }
       await sb.from("profiles").upsert(patch, { onConflict: "id" });
     }
   }

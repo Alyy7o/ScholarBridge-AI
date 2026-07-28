@@ -5,6 +5,12 @@ async function logSend(sb: SupabaseClient, userId: string, emailId: string, stat
   await sb.from("email_logs").insert({ user_id: userId, email_id: emailId, status, detail });
 }
 
+/** True when a failure is a Google auth problem (token expired/revoked, 401),
+ *  i.e. the user must reconnect Gmail — as opposed to a transient/other error. */
+export function isGmailAuthError(info: string): boolean {
+  return /invalid_grant|refresh failed|token refresh|unauthorized|\b401\b/i.test(info || "");
+}
+
 /** Send one email row (real Gmail if connected, else dry-run). Updates status + logs. */
 export async function sendEmailRow(
   sb: SupabaseClient,
@@ -47,12 +53,19 @@ export async function sendEmailRow(
     await sb.from("scheduled_emails")
       .update({ status: "sent", sent_at: new Date().toISOString(), error: null })
       .eq("id", email.id);
+    // A successful send proves the connection is healthy — clear any prior flag.
+    await sb.from("profiles").update({ gmail_needs_reconnect: false }).eq("id", userId);
     await logSend(sb, userId, email.id, "sent", "sent");
     return { status: "sent", info: "sent" };
   }
   await sb.from("scheduled_emails")
     .update({ status: "failed", attempts: (email.attempts || 0) + 1, error: res.info })
     .eq("id", email.id);
+  // If Gmail rejected us on auth grounds, mark the account so the UI can prompt
+  // the user to reconnect (their scheduled emails won't send until they do).
+  if (isGmailAuthError(res.info)) {
+    await sb.from("profiles").update({ gmail_needs_reconnect: true }).eq("id", userId);
+  }
   await logSend(sb, userId, email.id, "failed", res.info);
   return { status: "failed", info: res.info };
 }

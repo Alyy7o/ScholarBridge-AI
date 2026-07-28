@@ -22,6 +22,14 @@ a{color:var(--acc2)}
 .navbar .nav-right{margin-left:auto;display:flex;align-items:center;gap:10px;position:relative}
 .icon-btn{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--field);color:var(--mut);display:grid;place-items:center;cursor:pointer}
 .icon-btn:hover{color:var(--ink)}
+/* Day/night toggle — a rolling square "dice" that carries the active icon;
+   the other icon stays visible on the far side of the track. */
+.theme-toggle{position:relative;width:72px;height:32px;border-radius:9px;border:1px solid var(--line);background:var(--field);cursor:pointer;padding:0;flex:0 0 auto;overflow:hidden}
+.theme-toggle .tt-ic{position:absolute;top:50%;transform:translateY(-50%);display:flex;align-items:center;color:var(--mut);pointer-events:none}
+.theme-toggle .tt-moon{left:9px}
+.theme-toggle .tt-sun{right:9px}
+.theme-toggle .tt-knob{position:absolute;top:3px;left:3px;width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,var(--acc),var(--acc2));box-shadow:0 2px 7px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;color:#06303a;transition:transform .45s cubic-bezier(.6,-0.28,.44,1.28)}
+.theme-toggle.light .tt-knob{transform:translateX(40px) rotate(360deg)}
 .acct-btn{display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--field);border-radius:10px;padding:6px 10px 6px 6px;cursor:pointer;color:var(--ink);font-weight:600;font-size:13px}
 .acct-avatar{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--acc),var(--acc2));color:var(--on-acc);display:grid;place-items:center;font-weight:700;font-size:12px}
 .acct-menu{position:absolute;right:0;top:46px;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,.4);padding:8px;min-width:220px;z-index:50}
@@ -37,6 +45,13 @@ h1{font-size:22px;margin:0 0 3px}.lead{color:var(--mut);font-size:13px;margin:0 
 label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:600;margin:0 0 6px}
 input,textarea,select{width:100%;background:var(--field);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:10px 12px;font-size:14px;font-family:inherit}
 textarea{min-height:130px;resize:vertical}
+/* Themed checkboxes (accent tick, matches --acc gradient) */
+input[type=checkbox]{-webkit-appearance:none;appearance:none;width:17px;height:17px;min-width:17px;padding:0;margin:0;border:1.5px solid var(--line);border-radius:5px;background:var(--field);cursor:pointer;position:relative;vertical-align:middle;transition:background .12s,border-color .12s}
+input[type=checkbox]:hover{border-color:var(--acc)}
+input[type=checkbox]:checked{background:linear-gradient(135deg,var(--acc),var(--acc2));border-color:transparent}
+input[type=checkbox]:checked::after{content:"";position:absolute;left:5px;top:1.5px;width:4px;height:8px;border:solid var(--on-acc);border-width:0 2px 2px 0;transform:rotate(45deg)}
+input[type=checkbox]:focus-visible{outline:2px solid color-mix(in srgb,var(--acc) 55%,transparent);outline-offset:1px}
+input[type=checkbox]:disabled{opacity:.5;cursor:not-allowed}
 button.btn{background:linear-gradient(135deg,var(--acc),var(--acc2));color:var(--on-acc);border:none;border-radius:11px;padding:11px 18px;font-weight:700;font-size:14px;cursor:pointer}
 button.btn.sec{background:var(--card);color:var(--ink);border:1px solid var(--line)}
 button.btn.sm{padding:7px 12px;font-size:12px;border-radius:8px}

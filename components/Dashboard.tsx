@@ -14,6 +14,35 @@ const fmt = (iso?: string | null) => {
   catch { return String(iso); }
 };
 
+/** Re-run Google OAuth (with Gmail send scope) to refresh an expired connection.
+ *  Same flow as first sign-in; the /auth/callback stores the new token. */
+async function reconnectGoogle() {
+  await supabaseBrowser().auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      scopes: "email profile https://www.googleapis.com/auth/gmail.send",
+      redirectTo: `${location.origin}/auth/callback`,
+      queryParams: { access_type: "offline", prompt: "consent" },
+    },
+  });
+}
+
+/** Warning banner shown when the stored Gmail token has expired/been revoked. */
+function GmailReconnectBanner() {
+  return (
+    <div className="card" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: 14, marginBottom: 16, border: "1px solid var(--bad, #ef4444)", background: "rgba(239,68,68,.08)" }}>
+      <span style={{ display: "inline-flex", color: "var(--bad, #ef4444)" }}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4M12 17h.01" /></svg>
+      </span>
+      <div style={{ flex: 1, minWidth: 200 }}>
+        <b>Gmail sending is paused</b>
+        <div className="mut tiny" style={{ marginTop: 2 }}>Your Google connection expired, so scheduled emails can&apos;t be sent. Reconnect to resume sending.</div>
+      </div>
+      <button className="btn sm" onClick={reconnectGoogle}>Reconnect Google</button>
+    </div>
+  );
+}
+
 function Loader({ page = false, label = "Loading" }: { page?: boolean; label?: string }) {
   return (
     <div className={"loader" + (page ? " page" : "")}>
@@ -229,11 +258,17 @@ export default function Dashboard() {
         <div className="navbar">
           <div className="nav-title">{title}</div>
           <div className="nav-right">
-            <button className="icon-btn" title={theme === "dark" ? "Light mode" : "Dark mode"} onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
-              {theme === "dark"
-                ? <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5 3.5 3.5M20.5 20.5 19 19M19 5l1.5-1.5M3.5 20.5 5 19" /></svg>
-                : <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></svg>}
-            </button>
+            {(() => {
+              const moon = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></svg>;
+              const sun = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5 3.5 3.5M20.5 20.5 19 19M19 5l1.5-1.5M3.5 20.5 5 19" /></svg>;
+              return (
+                <button className={"theme-toggle" + (theme === "light" ? " light" : "")} role="switch" aria-checked={theme === "light"} aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"} title={theme === "dark" ? "Light mode" : "Dark mode"} onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+                  <span className="tt-ic tt-moon">{moon}</span>
+                  <span className="tt-ic tt-sun">{sun}</span>
+                  <span className="tt-knob">{theme === "dark" ? moon : sun}</span>
+                </button>
+              );
+            })()}
             <button className="acct-btn" onClick={() => setAcctOpen((o) => !o)}>
               <span className="acct-avatar">{(me.name || "?").slice(0, 1).toUpperCase()}</span>
               {me.name || "Account"}
@@ -275,6 +310,8 @@ const DIC = {
   quota: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9" /><path d="M12 7v5l3 2" /></svg>,
   total: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="m3 8 9 6 9-6" /></svg>,
   papers: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M8 13h8M8 17h6" /></svg>,
+  countries: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18Z" /></svg>,
+  high: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m9 12 2 2 4-4" /><path d="M12 3 4 6v5c0 5 3.4 7.8 8 10c4.6-2.2 8-5 8-10V6z" /></svg>,
 };
 function DashboardHome({ go }: any) {
   const [d, setD] = useState<any>(null);
@@ -301,6 +338,7 @@ function DashboardHome({ go }: any) {
 
   return (
     <>
+      {d.gmail?.needs_reconnect && <GmailReconnectBanner />}
       <div className="dash-grid">
         {card(DIC.scheduled, s.scheduled, "Scheduled")}
         {card(DIC.sent, s.sent, "Sent")}
@@ -324,6 +362,8 @@ function DashboardHome({ go }: any) {
       {mine && (() => {
         const totalEmails = Number(mine.total || 0);
         const totalPapers = (mine.countries || []).reduce((a: number, c: any) => a + Number(c.papers || 0), 0);
+        const countriesCovered = (mine.countries || []).filter((c: any) => Number(c.cached) > 0).length;
+        const highConf = Number(mine.high || 0);
         const gbars = (mine.countries || []).filter((c: any) => c.cached > 0).sort((a: any, b: any) => b.cached - a.cached).slice(0, 6);
         const gmax = Math.max(1, ...gbars.map((c: any) => Number(c.cached)));
         return (
@@ -332,7 +372,7 @@ function DashboardHome({ go }: any) {
               <b style={{ fontSize: 16 }}>Email mining</b>
               <button className="btn sm sec" onClick={() => go("emails")}>Open Email Mining →</button>
             </div>
-            <div className="dash-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 220px))" }}>
+            <div className="dash-grid">
               <div className="dash-card" onClick={() => go("emails")}>
                 <div className="dc-top"><span className="dc-ic">{DIC.total}</span></div>
                 <div><div className="dc-n">{totalEmails.toLocaleString()}</div><div className="dc-l">Emails mined</div></div>
@@ -340,6 +380,14 @@ function DashboardHome({ go }: any) {
               <div className="dash-card" onClick={() => go("emails")}>
                 <div className="dc-top"><span className="dc-ic">{DIC.papers}</span></div>
                 <div><div className="dc-n">{totalPapers.toLocaleString()}</div><div className="dc-l">Papers scanned</div></div>
+              </div>
+              <div className="dash-card" onClick={() => go("emails")}>
+                <div className="dc-top"><span className="dc-ic">{DIC.countries}</span></div>
+                <div><div className="dc-n">{countriesCovered.toLocaleString()}</div><div className="dc-l">Countries covered</div></div>
+              </div>
+              <div className="dash-card" onClick={() => go("emails")}>
+                <div className="dc-top"><span className="dc-ic">{DIC.high}</span></div>
+                <div><div className="dc-n">{highConf.toLocaleString()}</div><div className="dc-l">High-confidence</div></div>
               </div>
             </div>
             {gbars.length > 0 && (
@@ -889,6 +937,59 @@ function RowMenu({ items }: { items: Array<{ label: string; onClick: () => void;
   );
 }
 
+const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** Themed modal (in-app calendar + time picker) to re-queue one or many
+ *  cancelled/failed emails to a new time. `emails` is always an array. */
+function RescheduleModal({ emails, onClose, onDone }: { emails: any[]; onClose: () => void; onDone: () => void }) {
+  const init = new Date(Date.now() + 3600_000);
+  const [day, setDay] = useState<string>(() => isoDay(init));
+  const [time, setTime] = useState<{ hour: number; minute: number }>(() => ({ hour: init.getHours(), minute: init.getMinutes() }));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const bulk = emails.length > 1;
+  const submit = async () => {
+    setError("");
+    const [y, m, d] = day.split("-").map(Number);
+    const when = new Date(y, m - 1, d, time.hour, time.minute, 0, 0);
+    if (isNaN(when.getTime())) { setError("Pick a valid date and time."); return; }
+    if (when.getTime() < Date.now() - 60_000) { setError("Pick a time in the future."); return; }
+    setBusy(true);
+    try {
+      for (const e of emails) {
+        await api(`/api/emails/${e.id}/reschedule`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ send_at: when.toISOString() }),
+        });
+      }
+      onDone();
+    } catch (e: any) { setError(e?.message || "Could not reschedule."); setBusy(false); }
+  };
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div className="card" onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 520, padding: 18 }}>
+        <b style={{ fontSize: 15 }}>Reschedule {bulk ? `${emails.length} emails` : "email"}</b>
+        <div className="mut tiny" style={{ marginTop: 2 }}>{bulk ? "Applies the same new time to all selected." : `To ${emails[0]?.professor_name || emails[0]?.email}`}</div>
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "flex-start", marginTop: 14 }}>
+          <div style={{ flex: "1 1 260px", minWidth: 240 }}>
+            <label style={{ display: "block", marginBottom: 6 }}>Date</label>
+            <MiniCalendar selected={new Set([day])} onToggle={(k) => setDay(k)} />
+          </div>
+          <div>
+            <label style={{ display: "block", marginBottom: 6 }}>Time</label>
+            <TimePicker value={time} onChange={setTime} />
+          </div>
+        </div>
+        {error && <div className="tiny" style={{ color: "var(--bad)", marginTop: 10 }}>{error}</div>}
+        <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+          <button className="btn sm sec" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn sm" onClick={submit} disabled={busy}>{busy ? "Scheduling…" : "Reschedule"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function History({ toast }: any) {
   const [f, setF] = useState("all"); const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -897,6 +998,7 @@ function History({ toast }: any) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [reList, setReList] = useState<any[] | null>(null);
   const PER = 20;
   const load = useCallback(() => api("/api/emails?status=" + f).then((x) => { setList(x); setLoading(false); setSel(new Set()); }), [f]);
   useEffect(() => { load(); }, [load]);
@@ -963,6 +1065,7 @@ function History({ toast }: any) {
           <button className="btn sm sec" onClick={() => bulk("resume")}>Resume</button>
           <button className="btn sm sec" onClick={() => bulk("send-now")}>Send now</button>
           <button className="btn sm sec" onClick={() => bulk("cancel")}>Cancel</button>
+          <button className="btn sm sec" onClick={() => { const rows = list.filter((e) => sel.has(e.id) && ["cancelled", "failed"].includes(e.status)); if (!rows.length) { toast("Select cancelled or failed emails"); return; } setReList(rows); }}>Reschedule</button>
           <button className="btn sm danger" onClick={() => bulk("delete")}>Delete</button>
           <button className="btn sm sec" onClick={() => setSel(new Set())}>Clear</button>
         </div>
@@ -976,6 +1079,7 @@ function History({ toast }: any) {
             if (e.status === "paused") items.push({ label: "Resume", onClick: () => act(e.id, "resume") });
             if (["scheduled", "paused", "draft"].includes(e.status)) items.push({ label: "Send now", onClick: () => act(e.id, "send-now") });
             if (["scheduled", "paused"].includes(e.status)) items.push({ label: "Cancel", onClick: () => act(e.id, "cancel") });
+            if (["cancelled", "failed"].includes(e.status)) items.push({ label: "Reschedule", onClick: () => setReList([e]) });
             items.push({ label: "Delete", onClick: () => del(e.id), danger: true });
             return (<tr key={e.id}>
               <td><input type="checkbox" checked={sel.has(e.id)} onChange={() => toggle(e.id)} aria-label="Select email" /></td>
@@ -997,6 +1101,7 @@ function History({ toast }: any) {
         )}
         </>
       ) : <div className="mut">{query ? "No emails match your search." : "Nothing here."}</div>}</div>
+      {reList && <RescheduleModal emails={reList} onClose={() => setReList(null)} onDone={() => { setReList(null); toast("rescheduled"); load(); }} />}
     </>
   );
 }
@@ -1009,6 +1114,95 @@ const COUNTRIES: [string, string][] = [
   ["CN", "China"], ["JP", "Japan"], ["KR", "South Korea"], ["SG", "Singapore"],
   ["IN", "India"], ["PK", "Pakistan"], ["SA", "Saudi Arabia"], ["AE", "UAE"],
 ];
+
+// Fields for the single dropdown. Each maps to a DISTINCT OpenAlex subfield (the
+// broad bucket) so you can add several and each is a separate filter. Labels in
+// parentheses note what a broad bucket covers (e.g. AI includes ML & NLP).
+const FIELD_OPTIONS: Array<{ label: string; term: string }> = [
+  { label: "Artificial Intelligence (incl. ML & NLP)", term: "Artificial Intelligence" },
+  { label: "Computer Vision & Pattern Recognition", term: "Computer Vision and Pattern Recognition" },
+  { label: "Computer Networks & Cybersecurity", term: "Computer Networks and Communications" },
+  { label: "Human–Computer Interaction", term: "Human-Computer Interaction" },
+  { label: "Information Systems", term: "Information Systems" },
+  { label: "Software Engineering", term: "Software" },
+  { label: "Signal Processing", term: "Signal Processing" },
+  { label: "Robotics & Control Systems", term: "Control and Systems Engineering" },
+  { label: "Electrical & Electronic Engineering", term: "Electrical and Electronic Engineering" },
+  { label: "Bioinformatics & Molecular Biology", term: "Molecular Biology" },
+  { label: "Genetics", term: "Genetics" },
+  { label: "Neuroscience", term: "Neuroscience" },
+  { label: "Pharmacology", term: "Pharmacology" },
+  { label: "Public Health", term: "Public Health" },
+  { label: "Renewable Energy & Sustainability", term: "Renewable Energy" },
+  { label: "Materials Science", term: "Materials Science" },
+  { label: "Chemistry", term: "Chemistry" },
+  { label: "Biotechnology", term: "Biotechnology" },
+  { label: "Economics & Econometrics", term: "Economics" },
+  { label: "Psychology", term: "Psychology" },
+];
+
+/** Details modal: professor info, profile links, and a few recent papers. */
+function ProfessorDetailModal({ prof, email, onClose }: { prof: any; email?: string | null; onClose: () => void }) {
+  const [works, setWorks] = useState<any[] | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    let alive = true;
+    api(`/api/professors/works?id=${encodeURIComponent(prof.openalex_id)}`)
+      .then((j) => { if (alive) setWorks(j.works || []); })
+      .catch((e) => { if (alive) { setErr(e?.message || "Could not load papers"); setWorks([]); } });
+    return () => { alive = false; };
+  }, [prof.openalex_id]);
+  const scholar = `https://scholar.google.com/scholar?q=${encodeURIComponent(`${prof.name} ${prof.institution || ""}`.trim())}`;
+  const openalex = prof.openalex_id ? `https://openalex.org/${prof.openalex_id}` : null;
+  const orcid = prof.orcid ? `https://orcid.org/${prof.orcid}` : null;
+  const linkBtn = (href: string, label: string) => (
+    <a className="btn sm sec" href={href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>{label} ↗</a>
+  );
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div className="card" onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 560, maxHeight: "85vh", overflow: "auto", padding: 20 }}>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <b style={{ fontSize: 17 }}>{prof.name}</b>
+            <div className="mut tiny" style={{ marginTop: 2 }}>{prof.institution || "—"}{prof.country ? ` · ${String(prof.country).toUpperCase()}` : ""}</div>
+          </div>
+          <button className="btn sm sec" onClick={onClose}>Close</button>
+        </div>
+
+        <div className="row" style={{ gap: 16, marginTop: 12 }}>
+          <div><div className="mut tiny">Works</div><b>{prof.source === "cache" ? "—" : Number(prof.works_count || 0).toLocaleString()}</b></div>
+          <div><div className="mut tiny">Citations</div><b>{prof.source === "cache" ? "—" : Number(prof.cited_by_count || 0).toLocaleString()}</b></div>
+          {email ? <div><div className="mut tiny">Email</div><a href={`mailto:${email}`} className="tiny" style={{ color: "var(--acc2)", wordBreak: "break-all" }}>{email}</a></div> : null}
+        </div>
+
+        {prof.topics ? <div style={{ marginTop: 12 }}><div className="mut tiny" style={{ marginBottom: 4 }}>Fields</div><div className="tiny">{prof.topics}</div></div> : null}
+
+        <div className="row" style={{ gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+          {linkBtn(scholar, "Google Scholar")}
+          {orcid && linkBtn(orcid, "ORCID")}
+          {openalex && linkBtn(openalex, "OpenAlex")}
+        </div>
+
+        <div style={{ marginTop: 18 }}>
+          <b style={{ fontSize: 14 }}>Recent papers</b>
+          {works === null ? <div style={{ padding: "10px 0" }}><Loader label="Loading papers" /></div>
+            : works.length === 0 ? <div className="mut tiny" style={{ marginTop: 8 }}>{err || "No papers found."}</div>
+            : <div style={{ marginTop: 8 }}>
+                {works.map((w, i) => (
+                  <div key={i} className="emailrow" style={{ marginBottom: 8 }}>
+                    {w.url ? <a href={w.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--ink)", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>{w.title}</a>
+                           : <b style={{ fontSize: 13 }}>{w.title}</b>}
+                    <div className="mut tiny" style={{ marginTop: 3 }}>
+                      {[w.year, w.venue].filter(Boolean).join(" · ")}{w.cited_by_count ? ` · ${w.cited_by_count} citations` : ""}{w.is_oa ? " · Open access" : ""}
+                    </div>
+                  </div>
+                ))}
+              </div>}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function Picker({ type, value = "", onPick, placeholder, clearOnPick = false }: { type: "institutions" | "concepts"; value?: string; onPick: (id: string, label: string) => void; placeholder: string; clearOnPick?: boolean }) {
   const [q, setQ] = useState(value);
@@ -1049,7 +1243,7 @@ function FindProfessors({ toast }: any) {
   const [inst, setInst] = useState({ id: "", label: "" });
   const [countryUnis, setCountryUnis] = useState<Array<{ id: string; label: string }>>([]);
   const [uniLoading, setUniLoading] = useState(false);
-  const [concepts, setConcepts] = useState<Array<{ id: string; label: string }>>([]);
+  const [concepts, setConcepts] = useState<Array<{ id: string; label: string; kind?: "topic" | "subfield"; match?: string }>>([]);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -1058,6 +1252,7 @@ function FindProfessors({ toast }: any) {
   const [status, setStatus] = useState("");
   const [sel, setSel] = useState<Record<string, any>>({});
   const [emails, setEmails] = useState<Record<string, { loading?: boolean; email?: string | null }>>({});
+  const [detail, setDetail] = useState<any>(null);
   const [adding, setAdding] = useState(false);
   const [needsEmail, setNeedsEmail] = useState<any[]>([]);
   const [onlyEmail, setOnlyEmail] = useState(false);
@@ -1083,11 +1278,18 @@ function FindProfessors({ toast }: any) {
     return () => { alive = false; };
   }, [country]);
 
-  const search = async (p = 1) => {
-    if (!country && !inst.id && !concepts.length && !query.trim()) { setStatus("Pick at least one filter"); return; }
+  const search = async (p = 1, conceptOverride?: Array<{ id: string; label: string; kind?: "topic" | "subfield"; match?: string }>) => {
+    const cs = conceptOverride ?? concepts;
+    if (!country && !inst.id && !cs.length && !query.trim()) { setStatus("Pick at least one filter"); return; }
     setBusy(true); setStatus("Searching…"); setPage(p);
     try {
-      const j = await api("/api/professors/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ country, institutionId: inst.id, conceptIds: concepts.map((c) => c.id), query, page: p }) });
+      const j = await api("/api/professors/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        country, institutionId: inst.id, institutionLabel: inst.label,
+        conceptIds: cs.filter((c) => c.kind !== "subfield").map((c) => c.id),
+        subfieldIds: cs.filter((c) => c.kind === "subfield").map((c) => c.id),
+        conceptLabels: cs.map((c) => c.match || c.label), // match mined "field" on the real subfield name
+        query, page: p,
+      }) });
       const rows = j.results || [];
       setResults(rows); setTotal(j.total || 0);
       // Pre-fill emails we already have cached so they show inline right away.
@@ -1100,6 +1302,21 @@ function FindProfessors({ toast }: any) {
     setBusy(false);
   };
   const toggle = (r: any) => setSel((s) => { const n = { ...s }; if (n[r.openalex_id]) delete n[r.openalex_id]; else n[r.openalex_id] = r; return n; });
+  // Resolve a chosen field to its OpenAlex SUBFIELD (wide bucket) so the search
+  // returns the whole area (e.g. all AI/ML), add it as a chip, and search.
+  const addPreset = async (opt: { label: string; term: string }) => {
+    if (!opt?.term) return;
+    setBusy(true); setStatus(`Adding “${opt.label}”…`);
+    try {
+      const j = await api(`/api/openalex/broad-field?q=${encodeURIComponent(opt.term)}`);
+      const sf = j.result;
+      if (!sf?.id) { setBusy(false); setStatus(`No match for "${opt.label}"`); return; }
+      if (concepts.some((c) => c.id === sf.id)) { setBusy(false); search(1); return; }
+      const next = [...concepts, { id: sf.id, label: opt.label, kind: "subfield" as const, match: sf.label }];
+      setConcepts(next);
+      search(1, next); // show broad results immediately
+    } catch { setBusy(false); toast("Could not add field"); }
+  };
   const findEmail = async (r: any) => {
     setEmails((m) => ({ ...m, [r.openalex_id]: { loading: true } }));
     try {
@@ -1148,7 +1365,10 @@ function FindProfessors({ toast }: any) {
         </div>
         <div className="grid g2" style={{ marginTop: 12 }}>
           <div><label>Field of research (add several to broaden)</label>
-            <Picker type="concepts" value="" clearOnPick placeholder="e.g. Machine learning" onPick={(id, label) => { if (id && !concepts.some((c) => c.id === id)) setConcepts((cs) => [...cs, { id, label }]); }} />
+            <select value="" onChange={(e) => { const opt = FIELD_OPTIONS.find((o) => o.label === e.target.value); e.target.value = ""; if (opt) addPreset(opt); }}>
+              <option value="">Select a field of research…</option>
+              {FIELD_OPTIONS.map((o) => <option key={o.label} value={o.label}>{o.label}</option>)}
+            </select>
             {concepts.length > 0 && (
               <div className="row" style={{ marginTop: 8, gap: 6 }}>
                 {concepts.map((c) => (
@@ -1204,16 +1424,22 @@ function FindProfessors({ toast }: any) {
             {shown.length ? (
               <table><thead><tr><th style={{ width: 28 }} /><th style={{ width: 44 }}>#</th><th>Name</th><th>Institution</th><th>Country</th><th>Topics</th><th>Works</th><th>Cited</th><th>Email</th></tr></thead><tbody>
                 {shown.map((r, i) => (
-                  <tr key={r.openalex_id}>
-                    <td><input type="checkbox" checked={!!sel[r.openalex_id]} onChange={() => toggle(r)} /></td>
+                  <tr key={r.openalex_id} onClick={() => setDetail(r)} title="Click for details & papers" style={{ cursor: "pointer" }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "var(--field)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                    <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={!!sel[r.openalex_id]} onChange={() => toggle(r)} /></td>
                     <td className="mut">{(page - 1) * 25 + i + 1}</td>
-                    <td><b>{r.name}</b>{r.orcid ? <div className="mut tiny">ORCID {r.orcid}</div> : null}</td>
+                    <td>
+                      <b>{r.name}</b>
+                      {r.source === "cache" ? <span className="pill sent" style={{ marginLeft: 6, fontSize: 10 }}>mined</span> : null}
+                      {r.orcid ? <div className="mut tiny">ORCID {r.orcid}</div> : null}
+                    </td>
                     <td>{r.institution || "—"}</td>
                     <td className="mut">{(r.country || "").toUpperCase()}</td>
                     <td className="mut" style={{ maxWidth: 240 }}>{r.topics}</td>
-                    <td>{r.works_count}</td>
-                    <td>{r.cited_by_count}</td>
-                    <td>{(() => {
+                    <td>{r.source === "cache" ? "—" : r.works_count}</td>
+                    <td>{r.source === "cache" ? "—" : r.cited_by_count}</td>
+                    <td onClick={(e) => e.stopPropagation()}>{(() => {
                       const em = emails[r.openalex_id];
                       if (!em) return <button className="btn sm sec" onClick={() => findEmail(r)}>Find</button>;
                       if (em.loading) return <span className="mut tiny">Searching…</span>;
@@ -1234,6 +1460,8 @@ function FindProfessors({ toast }: any) {
           <button className="btn sm sec" disabled={results.length < 25 || busy} onClick={() => search(page + 1)}>Next &rarr;</button>
         </div>
       )}
+
+      {detail && <ProfessorDetailModal prof={detail} email={emails[detail.openalex_id]?.email || detail.email} onClose={() => setDetail(null)} />}
     </>
   );
 }
@@ -1403,9 +1631,11 @@ function Settings({ toast }: any) {
     <>
       <p className="lead">Gmail connection, sender name, and sending quota.</p>
       <div className="card"><div className="row" style={{ justifyContent: "space-between" }}>
-        <div><b>Gmail</b><div className="mut">{d.gmail.connected ? `Connected as ${d.gmail.email || "—"}` : "Not connected — sends run in dry-run mode"}</div></div>
-        <span className={`pill ${d.gmail.connected ? "on" : "off"}`}>{d.gmail.connected ? "CONNECTED" : "DRY-RUN"}</span></div>
-        {!d.gmail.connected && <div className="mut tiny" style={{ marginTop: 10 }}>Gmail connects automatically when you sign in with Google (with send permission). If it shows dry-run, sign out and back in and grant Gmail access.</div>}
+        <div><b>Gmail</b><div className="mut">{d.gmail.needs_reconnect ? "Connection expired — reconnect to resume sending" : d.gmail.connected ? `Connected as ${d.gmail.email || "—"}` : "Not connected — sends run in dry-run mode"}</div></div>
+        <span className={`pill ${d.gmail.needs_reconnect ? "off" : d.gmail.connected ? "on" : "off"}`}>{d.gmail.needs_reconnect ? "EXPIRED" : d.gmail.connected ? "CONNECTED" : "DRY-RUN"}</span></div>
+        {d.gmail.needs_reconnect
+          ? <div className="row" style={{ marginTop: 10 }}><button className="btn sm" onClick={reconnectGoogle}>Reconnect Google</button></div>
+          : !d.gmail.connected && <div className="mut tiny" style={{ marginTop: 10 }}>Gmail connects automatically when you sign in with Google (with send permission). If it shows dry-run, sign out and back in and grant Gmail access.</div>}
       </div>
       <div className="card"><label>Your name (fills {"{{your_name}}"})</label><div className="row"><input value={name} onChange={(e) => setName(e.target.value)} style={{ maxWidth: 320 }} /></div>
         <label style={{ marginTop: 14 }}>Daily sending quota</label><div className="row"><input type="number" value={quota} onChange={(e) => setQuota(parseInt(e.target.value) || 500)} style={{ maxWidth: 160 }} /><button className="btn sm" onClick={save}>Save</button></div>

@@ -2,6 +2,8 @@
 // that scrapes corresponding-author emails from a professor's open-access papers
 // (no scholarly API exposes emails directly).
 
+import { isPlausibleEmail, domainHasMx } from "./harvest";
+
 const OPENALEX = "https://api.openalex.org";
 
 function oaUrl(path: string, params: Record<string, string>): string {
@@ -30,6 +32,39 @@ export type AuthorHit = {
 };
 
 export type AutocompleteItem = { id: string; label: string; hint?: string };
+
+export type WorkItem = {
+  title: string;
+  year: number | null;
+  venue: string;
+  cited_by_count: number;
+  is_oa: boolean;
+  url: string | null;
+};
+
+/** A professor's most recent papers (for the details view). */
+export async function authorWorks(openalexId: string, limit = 6): Promise<WorkItem[]> {
+  const id = (openalexId || "").trim();
+  if (!id) return [];
+  const data = await oaJson(oaUrl("/works", {
+    filter: `authorships.author.id:${id}`,
+    sort: "publication_date:desc",
+    per_page: String(Math.min(Math.max(limit, 1), 25)),
+    select: "title,publication_year,primary_location,cited_by_count,open_access,doi,id",
+  }));
+  return (data.results || []).map((w: any): WorkItem => {
+    const loc = w.primary_location || {};
+    const src = loc.source || {};
+    return {
+      title: w.title || "Untitled",
+      year: w.publication_year || null,
+      venue: src.display_name || "",
+      cited_by_count: w.cited_by_count || 0,
+      is_oa: !!(w.open_access && w.open_access.is_oa),
+      url: w.doi || loc.landing_page_url || (w.id ? String(w.id) : null),
+    };
+  });
+}
 
 /** Autocomplete institutions or research fields (topics) for the filter UI. */
 export async function autocomplete(
@@ -68,11 +103,28 @@ export type SearchFilters = {
   country?: string;        // ISO code, e.g. "US"
   institutionId?: string;  // OpenAlex institution id (e.g. "I27837315")
   conceptId?: string;      // single OpenAlex concept id (legacy)
-  conceptIds?: string[];   // multiple fields of research (OR-combined)
+  conceptIds?: string[];   // specific topics (narrow, OR-combined)
+  subfieldIds?: string[];  // broad areas (OpenAlex subfields, OR-combined)
   query?: string;          // free-text name/keyword
   page?: number;
   perPage?: number;
 };
+
+/** Resolve a field name (e.g. "Artificial Intelligence") to its OpenAlex
+ *  SUBFIELD — the wide bucket that holds all the related topics. We search the
+ *  subfield vocabulary BY NAME (not the topic index), so "Artificial
+ *  Intelligence" maps to the AI subfield itself instead of some arbitrary
+ *  top-ranked topic whose subfield could be unrelated. */
+export async function resolveSubfield(term: string): Promise<{ id: string; label: string } | null> {
+  const q = term.trim();
+  if (!q) return null;
+  try {
+    const data = await oaJson(oaUrl("/subfields", { filter: `display_name.search:${q}`, per_page: "1", select: "id,display_name" }));
+    const sf = (data.results || [])[0];
+    if (sf?.id) return { id: String(sf.id).split("/").pop() || "", label: sf.display_name || q };
+  } catch { /* fall through */ }
+  return null;
+}
 
 function toHits(arr: any[]): AuthorHit[] {
   return (arr || []).map((a: any): AuthorHit => {
@@ -93,6 +145,7 @@ function toHits(arr: any[]): AuthorHit[] {
 /** Search professors/researchers by country, university and field. */
 export async function searchAuthors(f: SearchFilters): Promise<{ results: AuthorHit[]; total: number; debug: { filter: string; search: string } }> {
   const conceptIds = (f.conceptIds && f.conceptIds.length ? f.conceptIds : f.conceptId ? [f.conceptId] : []).filter(Boolean);
+  const subfieldIds = (f.subfieldIds || []).filter(Boolean);
   const country = (f.country || "").toLowerCase();
 
   // When a university and/or field is chosen, resolve people via the WORKS index
@@ -100,11 +153,13 @@ export async function searchAuthors(f: SearchFilters): Promise<{ results: Author
   // authors. Filtering authors directly on topics.id is too sparse — a professor
   // at a small school on a niche topic often has no matching author-level topic,
   // so the intersection comes back empty even though their papers match.
-  if (f.institutionId || conceptIds.length) {
+  if (f.institutionId || conceptIds.length || subfieldIds.length) {
     const wf: string[] = [];
     if (f.institutionId) wf.push(`authorships.institutions.id:${f.institutionId}`);
     else if (country) wf.push(`authorships.institutions.country_code:${country}`);
     if (conceptIds.length) wf.push(`topics.id:${conceptIds.join("|")}`);
+    // Broad areas filter on the paper's primary-topic SUBFIELD (wide bucket).
+    if (subfieldIds.length) wf.push(`primary_topic.subfield.id:${subfieldIds.join("|")}`);
     // Only recent papers, so results are people CURRENTLY at the institution
     // rather than alumni who published there years ago and have since moved.
     const since = new Date();
@@ -241,13 +296,19 @@ export async function findAuthorEmail(
     const found = text.match(EMAIL_RE) || [];
     for (const raw of found.slice(0, 40)) {
       const email = raw.toLowerCase().replace(/\.$/, "");
+      if (!isPlausibleEmail(email)) continue; // skip PDF-extraction junk
       candidates[email] = Math.max(candidates[email] ?? -99, scoreEmail(email, name));
     }
     // Stop early once we have a strong match.
     if (Object.values(candidates).some((v) => v >= 5)) break;
   }
   const ranked = Object.entries(candidates).sort((a, b) => b[1] - a[1]);
-  if (!ranked.length || ranked[0][1] < 0) return { email: null, confidence: null };
-  const [best, score] = ranked[0];
-  return { email: best, confidence: score >= 5 ? "high" : "low" };
+  // Return the best-scoring candidate whose domain can actually receive mail.
+  for (const [best, score] of ranked) {
+    if (score < 0) break;
+    if (await domainHasMx(best.split("@")[1] || "")) {
+      return { email: best, confidence: score >= 5 ? "high" : "low" };
+    }
+  }
+  return { email: null, confidence: null };
 }

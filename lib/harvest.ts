@@ -2,8 +2,46 @@
 // cache them (shared, in professor_emails). One paper yields every co-author's
 // email, so the cache grows fast and cheap.
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { promises as dnsp } from "node:dns";
 
 const OPENALEX = "https://api.openalex.org";
+
+// Cache MX results per domain so a crawl of many same-domain emails does one lookup.
+const mxCache = new Map<string, boolean>();
+
+/** Does this domain actually accept mail? Verifies an MX record (or an A record
+ *  fallback). Confirms the domain can receive email — i.e. the address isn't on
+ *  a made-up/dead domain — without sending anything. Lenient on transient DNS
+ *  errors so we don't drop good addresses when DNS momentarily fails. */
+export async function domainHasMx(domain: string): Promise<boolean> {
+  const d = (domain || "").toLowerCase().trim();
+  if (!d || d.indexOf(".") < 1) return false;
+  if (mxCache.has(d)) return mxCache.get(d)!;
+  let ok = false;
+  try {
+    const mx = await dnsp.resolveMx(d);
+    ok = Array.isArray(mx) && mx.length > 0;
+  } catch (e) {
+    const code = (e as { code?: string })?.code || "";
+    if (code === "ENOTFOUND" || code === "ENODATA" || code === "NXDOMAIN") {
+      // No MX — some domains still receive mail on their A record.
+      try { const a = await dnsp.resolve(d); ok = Array.isArray(a) && a.length > 0; } catch { ok = false; }
+    } else {
+      ok = true; // transient (timeout/servfail) — give the benefit of the doubt
+    }
+  }
+  mxCache.set(d, ok);
+  return ok;
+}
+
+/** Keep only emails whose domain can actually receive mail. */
+export async function filterByMx(emails: string[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const e of emails) {
+    if (await domainHasMx(e.split("@")[1] || "")) out.push(e);
+  }
+  return out;
+}
 
 // A country auto-stops (marked "done") once it has scanned this many papers, so
 // one huge country can't hog the crawler forever. Tune via env.
@@ -28,6 +66,46 @@ const GENERIC = new Set([
 ]);
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
+// Common generic TLDs. Any 2-letter TLD (ccTLDs like jp, cn, uk, de) is also
+// accepted. Anything else — e.g. a run-on word from broken PDF text such as
+// "…herpropertiesdifficult" — is rejected as not a real domain.
+const VALID_GTLDS = new Set([
+  "com", "org", "net", "edu", "gov", "mil", "int", "info", "biz", "io", "ai",
+  "co", "dev", "app", "eu", "asia", "name", "pro", "xyz", "online", "site", "tech",
+]);
+
+/**
+ * Reject the false positives that PDF/HTML text extraction produces. A string
+ * can look like an email (has an "@" and a dot) yet be junk:
+ *   • run-on words with a bogus TLD  (".itslowabundanceinn@uremade…difficult")
+ *   • all-digit local parts          ("15054218031@163.com", alumni/ref IDs)
+ *   • malformed local/domain labels
+ * Only syntactically sane, real-TLD addresses pass.
+ */
+export function isPlausibleEmail(email: string): boolean {
+  const e = (email || "").toLowerCase().trim().replace(/\.$/, "");
+  if (e.length < 6 || e.length > 254) return false;
+  const at = e.indexOf("@");
+  if (at < 1 || e.indexOf("@", at + 1) !== -1) return false; // exactly one "@"
+  const local = e.slice(0, at);
+  const domain = e.slice(at + 1);
+  // Local part: 1–40 chars, no leading/trailing dot, and MUST contain a letter
+  // (kills all-digit locals like "140973239" which are IDs, not names).
+  if (local.length > 40) return false;
+  if (!/^[a-z0-9](?:[a-z0-9._%+-]*[a-z0-9])?$/.test(local)) return false;
+  if (!/[a-z]/.test(local)) return false;
+  // Domain: 2+ labels, each 1–63 of [a-z0-9-] without edge hyphens.
+  if (domain.length > 200) return false;
+  const labels = domain.split(".");
+  if (labels.length < 2) return false;
+  for (const lab of labels) {
+    if (!/^[a-z0-9-]{1,63}$/.test(lab) || lab.startsWith("-") || lab.endsWith("-")) return false;
+  }
+  const tld = labels[labels.length - 1];
+  if (!(/^[a-z]{2}$/.test(tld) || VALID_GTLDS.has(tld))) return false;
+  return true;
+}
+
 /** Extract emails from page-1 text, expanding "{a, b}@domain" group syntax. */
 export function extractEmails(text: string): string[] {
   const out = new Set<string>();
@@ -44,7 +122,8 @@ export function extractEmails(text: string): string[] {
     }
   }
   for (const raw of t.match(EMAIL_RE) || []) out.add(raw.toLowerCase().replace(/\.$/, ""));
-  return [...out].filter((e) => !GENERIC.has(e.split("@")[0]));
+  // Drop role addresses AND anything that isn't a plausible real email.
+  return [...out].filter((e) => !GENERIC.has(e.split("@")[0]) && isPlausibleEmail(e));
 }
 
 type OAAuthor = { id: string; name: string; institution: string; country: string; corresponding: boolean };
@@ -165,7 +244,8 @@ async function harvestWork(w: any): Promise<Found[]> {
   const url = (loc.pdf_url as string) || (loc.landing_page_url as string);
   if (url) {
     const text = await pageOneText(url);
-    const emails = text ? extractEmails(text) : [];
+    // Extract, then keep only addresses whose domain can actually receive mail.
+    const emails = text ? await filterByMx(extractEmails(text)) : [];
     if (emails.length) {
       paired = pairEmailsToAuthors(emails, authors);
       // Attribute the corresponding author's email even without a name match:
@@ -173,14 +253,15 @@ async function harvestWork(w: any): Promise<Found[]> {
       const used = new Set(Object.values(paired).map((v) => v.email));
       const corr = authors.filter((a) => a.corresponding && !paired[a.id]);
       if (corr.length) {
-        // Prefer emails cued by "correspondence"; otherwise fall back to any
-        // still-unused email. Romanized CJK names rarely match the email local
-        // part, so relying only on a name match loses most of these.
+        // Attribute an email to a corresponding author ONLY when the page
+        // explicitly cues it as the correspondence address (near "correspond",
+        // "e-mail", ✉, etc.). The old behaviour of grabbing ANY leftover email
+        // was the main source of wrong/garbage addresses, so it's removed:
+        // better to leave a professor email-less than to store a bogus one.
         const cued = correspondenceEmails(text, emails).filter((e) => !used.has(e));
-        const pool = cued.length ? cued : emails.filter((e) => !used.has(e));
-        for (let i = 0; i < corr.length && i < pool.length; i++) {
-          paired[corr[i].id] = { email: pool[i], score: 3 };
-          used.add(pool[i]);
+        for (let i = 0; i < corr.length && i < cued.length; i++) {
+          paired[corr[i].id] = { email: cued[i], score: 3 };
+          used.add(cued[i]);
         }
       }
     }

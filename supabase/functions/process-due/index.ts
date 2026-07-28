@@ -139,14 +139,21 @@ Deno.serve(async (req) => {
     .eq("status", "scheduled").not("send_at", "is", null).lte("send_at", nowIso)
     .order("send_at", { ascending: true }).limit(200);
 
+  const isAuthErr = (info: string) => /invalid_grant|refresh failed|token refresh|unauthorized|\b401\b/i.test(info || "");
   let sent = 0, failed = 0;
   for (const e of due || []) {
     const res = await sendOne(e);
     if (res.ok) {
       await admin.from("scheduled_emails").update({ status: "sent", sent_at: nowIso, error: null }).eq("id", e.id);
+      // Healthy send → clear any stale reconnect flag for this user.
+      await admin.from("profiles").update({ gmail_needs_reconnect: false }).eq("id", e.user_id);
       sent++;
     } else {
       await admin.from("scheduled_emails").update({ status: "failed", attempts: (e.attempts || 0) + 1, error: res.info }).eq("id", e.id);
+      // Google auth failure → the token is dead; flag the account to reconnect.
+      if (isAuthErr(res.info)) {
+        await admin.from("profiles").update({ gmail_needs_reconnect: true }).eq("id", e.user_id);
+      }
       failed++;
     }
     await admin.from("email_logs").insert({ user_id: e.user_id, email_id: e.id, status: res.ok ? "sent" : "failed", detail: res.info });
