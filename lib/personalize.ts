@@ -45,23 +45,43 @@ function fallbackParagraph(topics: string, papers: Paper[]): string {
   return `I have been following your lab's work on ${topics || area}, which aligns closely with my research interests. ${STUDENT_BACKGROUND} Your group's direction is exactly the area I would like to pursue in more depth under your guidance.`;
 }
 
-// Robustly pull the paragraph out of the model reply. Handles ```json fences,
-// stray prose, and malformed JSON, and NEVER returns raw JSON-looking text.
-function extractParagraph(raw: string): string {
+// Subject fragment used when the AI is unavailable (weaker-match style: topic
+// keywords, no paper name).
+function fallbackSubject(topics: string, _papers: Paper[]): string {
+  const area = (topics.split(",").slice(0, 2).map((s) => s.trim()).filter(Boolean).join(" and ") || "your research area");
+  return `inspired by your work on ${area.toLowerCase()}`;
+}
+
+// Tidy the model's subject fragment: drop any "Prospective Research Student -"
+// the model repeated, leading dashes, and trailing punctuation.
+function cleanSubjectLine(s: string): string {
+  let x = (s || "").trim();
+  x = x.replace(/^prospective research student\s*[-–—:]\s*/i, "");
+  x = x.replace(/^[-–—:\s]+/, "");
+  x = x.replace(/[.\s"']+$/, "");
+  return x.trim();
+}
+
+// Robustly pull the paragraph AND subject fragment out of the model reply.
+// Handles ```json fences, stray prose, and malformed JSON.
+function extractResult(raw: string): { paragraph: string; subjectLine: string } {
   let c = (raw || "").trim();
   c = c.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  let paragraph = "";
+  let subjectLine = "";
   try {
     const p = JSON.parse(c);
-    const v = String(p.paragraph || p.lines || p.text || "").trim();
-    if (v) return v;
+    paragraph = String(p.paragraph || p.lines || p.text || "").trim();
+    subjectLine = String(p.subject_line || p.subjectLine || p.subject || "").trim();
   } catch {
-    /* not clean JSON — fall through */
+    const m = c.match(/"(?:paragraph|lines|text)"\s*:\s*"([\s\S]*?)"/);
+    if (m) paragraph = m[1].replace(/\\"/g, '"').replace(/\\n/g, " ").replace(/\s+/g, " ").trim();
+    const s = c.match(/"subject_line"\s*:\s*"([\s\S]*?)"/);
+    if (s) subjectLine = s[1].replace(/\\"/g, '"').replace(/\s+/g, " ").trim();
   }
-  const m = c.match(/"(?:paragraph|lines|text)"\s*:\s*"([\s\S]*?)"\s*}?\s*$/);
-  if (m) return m[1].replace(/\\"/g, '"').replace(/\\n/g, " ").replace(/\s+/g, " ").trim();
-  // Still looks like JSON/markdown — refuse to leak it.
-  if (c.startsWith("{") || c.startsWith("```") || c.startsWith("[")) return "";
-  return c;
+  // Never leak raw JSON/markdown as the paragraph.
+  if (paragraph && (paragraph.startsWith("{") || paragraph.startsWith("```") || paragraph.startsWith("["))) paragraph = "";
+  return { paragraph, subjectLine };
 }
 
 async function callModel(
@@ -70,29 +90,37 @@ async function callModel(
   university: string,
   topics: string,
   papers: Paper[],
-): Promise<string> {
-  const user = `Write ONE personalized paragraph for a cold email to a professor, in the exact style of the examples.
+  interest: string,
+): Promise<{ paragraph: string; subjectLine: string }> {
+  const user = `Write ONE personalized paragraph AND one short subject-line fragment for a cold email to a professor, in the exact style of the examples.
 
 Professor: ${name}
 University/Lab: ${university || "(unknown)"}
 Their research area / topics: ${topics || "(unspecified)"}
+Applicant's field / interests (use to judge how strongly a paper matches): ${interest || topics || "(unspecified)"}
 
 Their recent papers (pick the ONE that best matches the applicant's interests and refer to it as "your recent work on ..."):
 ${papersBlock(papers)}
 
 Applicant background to weave in (keep the paper title exact): ${STUDENT_BACKGROUND}
 
-Rules:
+PARAGRAPH rules:
 - One paragraph, 3-4 sentences. No greeting, no sign-off, no quotes around the whole thing.
 - Open with: "I have been following your lab's work on <the professor's area>, and your recent work on <ONE paper above, PARAPHRASED into a natural topic phrase — not the raw title, not in quotes> was especially interesting to me, because <a concrete reason linking it to the applicant's video / text / multimodal retrieval work>."
-- Then weave in the applicant background and close by naming the professor's SPECIFIC area, e.g. "... so your group's direction in <that area> is exactly the area I would like to pursue in more depth under your guidance."
+- Then weave in the applicant background and close by naming the professor's SPECIFIC area.
 - Use ONLY the papers listed. Never invent a paper. If none are listed, describe their stated topics and omit the "your recent work on ..." clause.
-- Make it clearly specific to THIS professor — not generic.
 
-Style examples:
+SUBJECT-LINE rules — a short fragment that will appear right after "Prospective Research Student - ":
+- If ONE paper is a STRONG match to the applicant's interests, write: inspired by your work on <plain 3-8 word description of that paper's topic> (<a short 1-4 word name or acronym of that paper's method/model taken from its title>)
+    e.g. "inspired by your work on learning movement representations from video (Action Motifs)"
+- Otherwise (weaker match), write: inspired by your work on <3-8 keywords describing the professor's related area> — with NO parentheses and NO paper name.
+    e.g. "inspired by your work on pattern recognition and image analysis"
+- All lowercase except proper nouns / acronyms / the paper name. No trailing period, no quotes, max ~14 words. Never invent a paper.
+
+Style examples (paragraph):
 ${STYLE_EXAMPLES}
 
-Return ONLY JSON: {"paragraph": "<the full paragraph>"}`;
+Return ONLY JSON: {"paragraph": "<the full paragraph>", "subject_line": "<the subject fragment>"}`;
 
   const r = await fetch(OPENROUTER, {
     method: "POST",
@@ -115,9 +143,9 @@ Return ONLY JSON: {"paragraph": "<the full paragraph>"}`;
   if (!r.ok) throw new Error(`OpenRouter ${r.status}`);
   const data = await r.json();
   const content = data.choices?.[0]?.message?.content ?? "";
-  const text = extractParagraph(content);
-  if (!text) throw new Error("empty");
-  return text;
+  const { paragraph, subjectLine } = extractResult(content);
+  if (!paragraph) throw new Error("empty");
+  return { paragraph, subjectLine: cleanSubjectLine(subjectLine) || fallbackSubject(topics, papers) };
 }
 
 export async function personalize(
@@ -125,18 +153,21 @@ export async function personalize(
   university: string,
   topics: string,
   papers: Paper[],
-): Promise<string> {
-  if (!process.env.OPENROUTER_API_KEY) return fallbackParagraph(topics, papers);
+  interest = "",
+): Promise<{ paragraph: string; subjectLine: string }> {
+  if (!process.env.OPENROUTER_API_KEY) {
+    return { paragraph: fallbackParagraph(topics, papers), subjectLine: fallbackSubject(topics, papers) };
+  }
   const models = [
     process.env.OPENROUTER_MODEL_PRIMARY || "deepseek/deepseek-chat",
     process.env.OPENROUTER_MODEL_FALLBACK || "qwen/qwen-2.5-32b-instruct",
   ];
   for (const m of models) {
     try {
-      return await callModel(m, name, university, topics, papers);
+      return await callModel(m, name, university, topics, papers, interest);
     } catch {
       /* try next model */
     }
   }
-  return fallbackParagraph(topics, papers);
+  return { paragraph: fallbackParagraph(topics, papers), subjectLine: fallbackSubject(topics, papers) };
 }

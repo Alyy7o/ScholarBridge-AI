@@ -62,11 +62,13 @@ export async function POST(req: Request) {
       // the professor's own topics (e.g. the Excel "field"/"area" column).
       const topicsForSearch = searchTopics || p.topics || "";
       const { papers, source } = await findPapers(p.name, p.university || "", 4, topicsForSearch);
-      const lines = await personalize(p.name, p.university || "", p.topics || searchTopics || "", papers);
-      const { subject: subj, body } = renderTemplate(template, subject, p, lines, senderName);
+      // `interest` (the sender's field) steers the strong-vs-weak match judgment
+      // for the AI subject fragment.
+      const { paragraph, subjectLine } = await personalize(p.name, p.university || "", p.topics || searchTopics || "", papers, searchTopics || p.topics || "");
+      const { subject: subj, body } = renderTemplate(template, subject, p, paragraph, senderName, subjectLine);
       return {
         professor_name: p.name, email: p.email, university: p.university || "",
-        topics: p.topics || "", subject: subj, body, personalized: lines,
+        topics: p.topics || "", subject: subj, body, personalized: paragraph, subject_line: subjectLine,
         research_source: source, papers_used: papers.map((x) => x.title), workflow: "ai",
       };
     }),

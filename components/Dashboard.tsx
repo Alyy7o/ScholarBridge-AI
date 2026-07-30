@@ -611,7 +611,7 @@ function Compose({ toast, go }: any) {
           <FileDrop file={file} onFile={setFile} accept=".xlsx,.xls,.csv" hint="XLSX, XLS or CSV file" />
           <div className="grid g2" style={{ marginTop: 14 }}>
             <div><label>Template</label><select value={tplId} onChange={(e) => setTplId(e.target.value)}><option value="">Built-in default</option>{tpls.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
-            <div><label>Subject override (optional)</label><input value={subj} onChange={(e) => setSubj(e.target.value)} placeholder="Leave blank to use the template subject" /></div>
+            <div><label>Subject override (optional)</label><input value={subj} onChange={(e) => setSubj(e.target.value)} placeholder="Prospective Research Student - {{subject_line}}" /><div className="mut tiny" style={{ marginTop: 6 }}>Include <code>{"{{subject_line}}"}</code> for an AI, per-professor line. Blank uses the template / default subject.</div></div>
           </div>
           <div style={{ marginTop: 12 }}><label>Research topics to search (optional)</label><input value={searchTopics} onChange={(e) => setSearchTopics(e.target.value)} placeholder="e.g. machine learning, protein folding — steers which papers are found" /><div className="mut tiny" style={{ marginTop: 6 }}>Used to search each professor's papers. Leave blank to use their own topics / field, or their most recent work.</div></div>
           <div className="row" style={{ marginTop: 14 }}><button className="btn" disabled={busy} onClick={runAI}>Research &amp; draft</button><span className="mut">{status}</span></div>
@@ -746,18 +746,199 @@ function Compose({ toast, go }: any) {
 
 /* ---------- Professors ---------- */
 const NEW_BUCKET = "__new__";
+// Full-screen modal shell reused by the professor add/edit/upload/confirm popups.
+function ModalShell({ onClose, maxWidth = 460, title, children }: { onClose: () => void; maxWidth?: number; title?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div className="card" onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth, maxHeight: "88vh", overflow: "auto", padding: 18, marginBottom: 0 }}>
+        {title ? <b style={{ fontSize: 15 }}>{title}</b> : null}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Bucket picker (existing bucket or create a new one) used across the modals.
+function BucketSelect({ value, onChange, buckets, newName, setNewName }: any) {
+  const creating = value === NEW_BUCKET;
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+      <select value={value} onChange={(e) => onChange(e.target.value)} style={{ flex: creating ? "0 0 150px" : "1 1 auto", minWidth: 120, height: 36 }}>
+        <option value="">No bucket</option>
+        {buckets.map((b: any) => <option key={b.id} value={b.id}>{b.name} ({b.count})</option>)}
+        <option value={NEW_BUCKET}>＋ New bucket…</option>
+      </select>
+      {creating && <input placeholder="New bucket name" value={newName} onChange={(e) => setNewName(e.target.value)} style={{ flex: "1 1 auto", minWidth: 100, height: 36 }} autoFocus />}
+    </div>
+  );
+}
+
+// { bucket_id } | { bucket_name } | {} from a BucketSelect value.
+function bucketPayload(value: string, newName: string) {
+  if (value === NEW_BUCKET) return newName.trim() ? { bucket_name: newName.trim() } : {};
+  return value ? { bucket_id: value } : {};
+}
+
+function ConfirmModal({ title, message, confirmLabel = "Delete", danger = true, onConfirm, onClose }: any) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <ModalShell onClose={onClose} maxWidth={400} title={title}>
+      <p style={{ margin: "10px 0 0", fontSize: 13, color: "var(--mut)", lineHeight: 1.5 }}>{message}</p>
+      <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+        <button className="btn sm sec" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className={"btn sm" + (danger ? " danger" : "")} disabled={busy} onClick={async () => { setBusy(true); try { await onConfirm(); } catch { setBusy(false); } }}>{busy ? "Working…" : confirmLabel}</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// Add or edit a professor (edit when `initial.id` is present).
+function ProfessorFormModal({ initial, buckets, onClose, onSaved, toast }: any) {
+  const editing = !!initial?.id;
+  const [m, setM] = useState({ name: initial?.name || "", email: initial?.email || "", university: initial?.university || "", topics: initial?.topics || "" });
+  const [bucket, setBucket] = useState("");
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async () => {
+    if (!m.email.includes("@")) { setError("A valid email is required."); return; }
+    setBusy(true); setError("");
+    const body = editing ? { ...m, id: initial.id } : { ...m, ...bucketPayload(bucket, newName) };
+    try {
+      const j = await api("/api/professors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (j.duplicate) toast(j.bucketed ? "Already saved — added to bucket" : "Already exists");
+      else toast(editing ? "Professor updated" : "Professor added");
+      onSaved();
+    } catch (e) { setError((e as Error)?.message || "Save failed"); setBusy(false); }
+  };
+  return (
+    <ModalShell onClose={onClose} maxWidth={440} title={editing ? "Edit professor" : "Add professor"}>
+      {!editing && (
+        <div style={{ marginTop: 12 }}>
+          <label>Add to bucket (optional)</label>
+          <BucketSelect value={bucket} onChange={setBucket} buckets={buckets} newName={newName} setNewName={setNewName} />
+        </div>
+      )}
+      <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+        {(["name", "email", "university", "topics"] as const).map((k) => (
+          <div key={k}>
+            <label>{k === "topics" ? "Topics / field" : k[0].toUpperCase() + k.slice(1)}</label>
+            <input value={(m as any)[k]} onChange={(e) => setM({ ...m, [k]: e.target.value })} placeholder={k === "email" ? "name@university.edu" : ""} />
+          </div>
+        ))}
+      </div>
+      {error && <div className="tiny" style={{ color: "var(--bad)", marginTop: 10 }}>{error}</div>}
+      <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+        <button className="btn sm sec" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className="btn sm" onClick={submit} disabled={busy}>{busy ? "Saving…" : editing ? "Update professor" : "Add professor"}</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// Upload a spreadsheet of professors.
+function UploadModal({ buckets, onClose, onDone, toast }: any) {
+  const [file, setFile] = useState<File | null>(null);
+  const [bucket, setBucket] = useState("");
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [st, setSt] = useState("");
+  const upload = async () => {
+    if (!file) { setSt("Choose a file first."); return; }
+    const fd = new FormData(); fd.append("file", file);
+    const bf: any = bucketPayload(bucket, newName);
+    if (bf.bucket_id) fd.append("bucket_id", bf.bucket_id);
+    if (bf.bucket_name) fd.append("bucket_name", bf.bucket_name);
+    setBusy(true); setSt("Uploading…");
+    try { const j = await api("/api/professors/upload", { method: "POST", body: fd }); toast(`Added ${j.added}, skipped ${j.duplicates}`); onDone(); }
+    catch (e) { setSt((e as Error)?.message || "Upload failed"); setBusy(false); }
+  };
+  return (
+    <ModalShell onClose={onClose} maxWidth={460} title="Upload professors">
+      <div style={{ marginTop: 12 }}>
+        <label>Add to bucket (optional)</label>
+        <BucketSelect value={bucket} onChange={setBucket} buckets={buckets} newName={newName} setNewName={setNewName} />
+      </div>
+      <div className="mut tiny" style={{ margin: "14px 0 10px" }}>XLSX, XLS or CSV with Name and Email columns. A &ldquo;Field&rdquo; or &ldquo;Area&rdquo; column is read as topics.</div>
+      <FileDrop file={file} onFile={setFile} accept=".xlsx,.xls,.csv" hint="XLSX, XLS or CSV file" />
+      {st && <div className="tiny" style={{ marginTop: 8, color: /fail|Choose/.test(st) ? "var(--bad)" : "var(--mut)" }}>{st}</div>}
+      <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+        <button className="btn sm sec" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className="btn sm" onClick={upload} disabled={busy}>{busy ? "Uploading…" : "Upload"}</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// Assign selected professors to a bucket.
+function BucketAssignModal({ buckets, ids, onClose, onDone, toast }: any) {
+  const [bucket, setBucket] = useState("");
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async () => {
+    const bf: any = bucketPayload(bucket, newName);
+    if (!bf.bucket_id && !bf.bucket_name) { setError("Pick or name a bucket."); return; }
+    setBusy(true); setError("");
+    try { await api("/api/buckets/assign", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ professor_ids: ids, ...bf }) }); toast(`Added ${ids.length} to bucket`); onDone(); }
+    catch (e) { setError((e as Error)?.message || "Failed"); setBusy(false); }
+  };
+  return (
+    <ModalShell onClose={onClose} maxWidth={420} title={`Add ${ids.length} to a bucket`}>
+      <div style={{ marginTop: 12 }}><BucketSelect value={bucket} onChange={setBucket} buckets={buckets} newName={newName} setNewName={setNewName} /></div>
+      {error && <div className="tiny" style={{ color: "var(--bad)", marginTop: 10 }}>{error}</div>}
+      <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+        <button className="btn sm sec" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className="btn sm" onClick={submit} disabled={busy}>{busy ? "Adding…" : "Add to bucket"}</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// Filter icon → dropdown of bucket checkboxes (default: all on). selB === null means "all".
+function BucketFilter({ buckets, selB, setSelB, allKeys }: any) {
+  const [open, setOpen] = useState(false);
+  const isAll = !selB || allKeys.every((k: string) => selB.has(k));
+  const toggle = (k: string) => setSelB(() => { const s = new Set<string>(selB ? selB : allKeys); if (s.has(k)) s.delete(k); else s.add(k); return s; });
+  return (
+    <div style={{ position: "relative" }}>
+      <button className="btn sm sec" onClick={() => setOpen((o) => !o)} style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></svg>
+        Filter{isAll ? "" : ` (${selB.size})`}
+      </button>
+      {open && (
+        <>
+          <button type="button" aria-hidden className="tpf-backdrop" onClick={() => setOpen(false)} />
+          <div style={{ position: "absolute", right: 0, top: "100%", marginTop: 4, zIndex: 30, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, minWidth: 220, maxHeight: 320, overflow: "auto", boxShadow: "0 12px 30px rgba(0,0,0,.4)", padding: 8 }}>
+            <div className="row" style={{ gap: 6, marginBottom: 6 }}>
+              <button className="btn sm sec" style={{ padding: "3px 9px", fontSize: 11 }} onClick={() => setSelB(new Set(allKeys))}>All</button>
+              <button className="btn sm sec" style={{ padding: "3px 9px", fontSize: 11 }} onClick={() => setSelB(new Set())}>None</button>
+            </div>
+            {buckets.map((b: any) => (
+              <label key={b.id} className="chk" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "5px 4px", fontSize: 13 }}>
+                <input type="checkbox" checked={isAll || selB.has(b.id)} onChange={() => toggle(b.id)} /> {b.name} ({b.count})
+              </label>
+            ))}
+            <label className="chk" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "5px 4px", fontSize: 13 }}>
+              <input type="checkbox" checked={isAll || selB.has("__none__")} onChange={() => toggle("__none__")} /> Ungrouped
+            </label>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Professors({ toast }: any) {
   const [list, setList] = useState<any[]>([]);
   const [buckets, setBuckets] = useState<any[]>([]);
-  const [m, setM] = useState({ name: "", email: "", university: "", topics: "" });
-  const [editId, setEditId] = useState<string | null>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [st, setSt] = useState("");
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState("");                 // "" = all, "__none__" = ungrouped, else bucket id
-  const [addBucket, setAddBucket] = useState("");           // bucket to file new adds/uploads into
-  const [newName, setNewName] = useState("");               // typed name when addBucket === NEW_BUCKET
+  const [selB, setSelB] = useState<Set<string> | null>(null); // null = all buckets shown
+  const [modal, setModal] = useState<any>(null); // {type:"add"|"edit"|"upload"|"assign"|"confirm", ...}
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const trunc = (s: string, n = 48) => (s && s.length > n ? s.slice(0, n).trimEnd() + "…" : (s || ""));
   const bucketName = (id: string) => buckets.find((b) => b.id === id)?.name || "";
   const load = () => {
     api("/api/professors").then((x) => { setList(x); setLoading(false); setSel(new Set()); });
@@ -765,99 +946,97 @@ function Professors({ toast }: any) {
   };
   useEffect(() => { load(); }, []);
 
-  // Bucket fields to send with an add/upload, resolving the "new bucket" case.
-  const bucketFields = () => {
-    if (addBucket === NEW_BUCKET) return newName.trim() ? { bucket_name: newName.trim() } : {};
-    return addBucket ? { bucket_id: addBucket } : {};
-  };
-  const upload = async () => {
-    if (!file) { setSt("Choose a file"); return; }
-    const fd = new FormData(); fd.append("file", file);
-    const bf = bucketFields(); if ((bf as any).bucket_id) fd.append("bucket_id", (bf as any).bucket_id); if ((bf as any).bucket_name) fd.append("bucket_name", (bf as any).bucket_name);
-    setSt("Uploading…");
-    try { const j = await api("/api/professors/upload", { method: "POST", body: fd }); setSt(`Added ${j.added}, skipped ${j.duplicates}`); setNewName(""); load(); }
-    catch (e) { setSt((e as Error).message || "Upload failed"); }
-  };
-  const blank = { name: "", email: "", university: "", topics: "" };
-  const save = async () => {
-    if (!m.email.includes("@")) { toast("Valid email required"); return; }
-    const body = { ...(editId ? { ...m, id: editId } : m), ...(editId ? {} : bucketFields()) };
-    const j = await api("/api/professors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (j.duplicate) toast(j.bucketed ? "Already saved — added to bucket" : "Already exists");
-    else { toast(editId ? "Updated" : "Added"); setM(blank); setEditId(null); setNewName(""); }
-    load();
-  };
-  const edit = (p: any) => { setEditId(p.id); setM({ name: p.name || "", email: p.email || "", university: p.university || "", topics: p.topics || "" }); if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const allKeys = useMemo(() => [...buckets.map((b) => b.id), "__none__"], [buckets]);
+  const isAll = !selB || allKeys.every((k) => selB!.has(k));
+  const shown = useMemo(() => (isAll ? list : list.filter((p) => {
+    const ids = p.bucket_ids || [];
+    return ids.length ? ids.some((id: string) => selB!.has(id)) : selB!.has("__none__");
+  })), [list, selB, isAll]);
+  useEffect(() => { setPage(1); }, [selB]);
+  const pageCount = Math.max(1, Math.ceil(shown.length / pageSize));
+  const pageC = Math.min(page, pageCount);
+  const paged = shown.slice((pageC - 1) * pageSize, pageC * pageSize);
+
   const del = async (id: string) => { await api("/api/professors/" + id, { method: "DELETE" }); load(); };
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const allChecked = paged.length > 0 && paged.every((p) => sel.has(p.id));
+  const toggleAll = () => setSel((s) => (paged.every((p) => s.has(p.id)) ? new Set([...s].filter((id) => !paged.some((p) => p.id === id))) : new Set([...s, ...paged.map((p) => p.id)])));
   const bulkDelete = async () => {
-    if (!sel.size || !confirm(`Delete ${sel.size} professor(s)?`)) return;
     await api("/api/professors/bulk-delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: [...sel] }) });
     toast(`Deleted ${sel.size}`); load();
-  };
-  const bulkAssign = async () => {
-    const bf = bucketFields();
-    if (!(bf as any).bucket_id && !(bf as any).bucket_name) { toast("Pick a bucket above first"); return; }
-    await api("/api/buckets/assign", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ professor_ids: [...sel], ...bf }) });
-    toast(`Added ${sel.size} to bucket`); setNewName(""); load();
   };
   const delBucket = async (id: string) => {
     if (!confirm(`Delete bucket "${bucketName(id)}"? Professors stay; only the grouping is removed.`)) return;
     await api("/api/buckets/" + id, { method: "DELETE" });
-    if (filter === id) setFilter(""); if (addBucket === id) setAddBucket("");
     load();
   };
-
-  const shown = filter === "__none__" ? list.filter((p) => !(p.bucket_ids || []).length)
-    : filter ? list.filter((p) => (p.bucket_ids || []).includes(filter)) : list;
-  const allChecked = shown.length > 0 && shown.every((p) => sel.has(p.id));
-  const toggleAll = () => setSel((s) => (shown.every((p) => s.has(p.id)) ? new Set([...s].filter((id) => !shown.some((p) => p.id === id))) : new Set([...s, ...shown.map((p) => p.id)])));
+  const closeAndReload = () => { setModal(null); load(); };
 
   return (
     <>
-      <p className="lead">Upload a spreadsheet or add manually, and sort professors into buckets you can target when composing. A &ldquo;Field&rdquo; or &ldquo;Area&rdquo; column is read as the professor&rsquo;s topics.</p>
-      <div className="card">
-        <label>Add to bucket</label>
-        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          <select value={addBucket} onChange={(e) => setAddBucket(e.target.value)} style={{ maxWidth: 260 }}>
-            <option value="">No bucket (just save)</option>
-            {buckets.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.count})</option>)}
-            <option value={NEW_BUCKET}>＋ New bucket…</option>
+      <p className="lead">Add professors manually or from a spreadsheet, and sort them into buckets you can target when composing.</p>
+
+      <div className="row" style={{ gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <button className="btn sm" onClick={() => setModal({ type: "add" })}>＋ Add professor</button>
+        <button className="btn sm sec" onClick={() => setModal({ type: "upload" })}>⭱ Upload file</button>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} className="pagesize" aria-label="Results per page">
+            {[20, 50, 100, 200, 500, 1000].map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
-          {addBucket === NEW_BUCKET && <input placeholder="New bucket name" value={newName} onChange={(e) => setNewName(e.target.value)} style={{ maxWidth: 220 }} />}
-        </div>
-        <div className="mut tiny" style={{ marginTop: 6 }}>New professors added or uploaded below go into this bucket. Choose &ldquo;No bucket&rdquo; to just save them.</div>
-        <div className="grid g2" style={{ marginTop: 14 }}>
-          <div><label>Upload Excel/CSV</label><FileDrop file={file} onFile={setFile} accept=".xlsx,.xls,.csv" hint="XLSX, XLS or CSV file" /><div className="row" style={{ marginTop: 10 }}><button className="btn sm" onClick={upload}>Upload</button><span className="mut">{st}</span></div></div>
-          <div><label>{editId ? "Edit professor" : "Add manually"}</label>
-            {(["name", "email", "university", "topics"] as const).map((k) => (<input key={k} placeholder={k === "topics" ? "Topics / field" : k[0].toUpperCase() + k.slice(1)} value={(m as any)[k]} onChange={(e) => setM({ ...m, [k]: e.target.value })} style={{ marginBottom: 8 }} />))}
-            <div className="row"><button className="btn sm" onClick={save}>{editId ? "Update professor" : "Add professor"}</button>{editId && <button className="btn sm sec" onClick={() => { setEditId(null); setM(blank); }}>Cancel</button>}</div></div>
+          {buckets.length > 0 && <BucketFilter buckets={buckets} selB={selB} setSelB={setSelB} allKeys={allKeys} />}
         </div>
       </div>
 
-      <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-        <button className={"chip" + (filter === "" ? " on" : "")} onClick={() => setFilter("")}>All ({list.length})</button>
-        {buckets.map((b) => (
-          <span key={b.id} className={"chip" + (filter === b.id ? " on" : "")} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <button className="chip-lbl" onClick={() => setFilter(b.id)}>{b.name} ({b.count})</button>
-            <button className="chip-x" title="Delete bucket" onClick={() => delBucket(b.id)}>×</button>
-          </span>
-        ))}
-        <button className={"chip" + (filter === "__none__" ? " on" : "")} onClick={() => setFilter("__none__")}>Ungrouped</button>
-      </div>
+      {buckets.length > 0 && (
+        <div className="row" style={{ gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+          {buckets.map((b) => (
+            <span key={b.id} className="pill draft" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              {b.name} ({b.count})
+              <button className="chip-x" title="Delete bucket" onClick={() => delBucket(b.id)} style={{ lineHeight: 1 }}>×</button>
+            </span>
+          ))}
+        </div>
+      )}
 
       {sel.size > 0 && (
         <div className="card" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <b>{sel.size} selected</b>
-          <button className="btn sm" onClick={bulkAssign}>Add to bucket ↑</button>
-          <button className="btn sm danger" onClick={bulkDelete}>Delete selected</button>
+          <button className="btn sm" onClick={() => setModal({ type: "assign", ids: [...sel] })}>Add to bucket</button>
+          <button className="btn sm danger" onClick={() => setModal({ type: "confirmBulk" })}>Delete selected</button>
           <button className="btn sm sec" onClick={() => setSel(new Set())}>Clear</button>
         </div>
       )}
-      <div className="card">{loading ? <Loader /> : shown.length ? (
-        <table><thead><tr><th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th><th style={{ width: 44 }}>#</th><th>Name</th><th>Email</th><th>University/Lab</th><th>Buckets</th><th>Topics / Field</th><th /></tr></thead><tbody>
-          {shown.map((p, i) => (<tr key={p.id}><td><input type="checkbox" checked={sel.has(p.id)} onChange={() => toggle(p.id)} aria-label={`Select ${p.name}`} /></td><td className="mut">{i + 1}</td><td><b>{p.name}</b></td><td>{p.email}</td><td>{p.university}</td><td>{(p.bucket_ids || []).length ? (p.bucket_ids || []).map((id: string) => <span key={id} className="pill draft" style={{ marginRight: 4 }}>{bucketName(id)}</span>) : <span className="mut tiny">—</span>}</td><td className="mut">{p.topics}</td><td style={{ whiteSpace: "nowrap" }}><button className="btn sm sec" onClick={() => edit(p)}>Edit</button> <button className="btn sm danger" onClick={() => del(p.id)}>Delete</button></td></tr>))}
-        </tbody></table>) : <div className="mut">{filter ? "No professors in this bucket yet." : "No professors yet."}</div>}</div>
+
+      <div className="card">{loading ? <Loader /> : shown.length ? (<>
+        <table><thead><tr><th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th><th style={{ width: 40 }}>#</th><th>Name</th><th>Email</th><th>University/Lab</th><th style={{ minWidth: 150 }}>Buckets</th><th style={{ minWidth: 200 }}>Topics / Field</th><th style={{ width: 44 }} /></tr></thead><tbody>
+          {paged.map((p, i) => (
+            <tr key={p.id}>
+              <td style={{ verticalAlign: "top" }}><input type="checkbox" checked={sel.has(p.id)} onChange={() => toggle(p.id)} aria-label={`Select ${p.name}`} /></td>
+              <td className="mut" style={{ verticalAlign: "top" }}>{(pageC - 1) * pageSize + i + 1}</td>
+              <td style={{ verticalAlign: "top" }}><b>{p.name}</b></td>
+              <td style={{ verticalAlign: "top" }}>{p.email}</td>
+              <td style={{ verticalAlign: "top" }}>{p.university}</td>
+              <td style={{ verticalAlign: "top" }}>{(p.bucket_ids || []).length ? <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{(p.bucket_ids || []).map((id: string) => <span key={id} className="btag">{bucketName(id)}</span>)}</div> : <span className="mut tiny">—</span>}</td>
+              <td className="mut" style={{ verticalAlign: "top" }} title={p.topics || ""}>{trunc(p.topics, 48)}</td>
+              <td style={{ verticalAlign: "top" }}><RowMenu items={[{ label: "Edit", onClick: () => setModal({ type: "edit", prof: p }) }, { label: "Delete", onClick: () => setModal({ type: "confirm", prof: p }), danger: true }]} /></td>
+            </tr>
+          ))}
+        </tbody></table>
+        {pageCount > 1 && (
+          <div className="row" style={{ justifyContent: "center", marginTop: 14, gap: 10 }}>
+            <button className="btn sm sec" disabled={pageC <= 1} onClick={() => setPage(pageC - 1)}>&larr; Prev</button>
+            <span className="mut">Page {pageC} of {pageCount} · {shown.length} total</span>
+            <button className="btn sm sec" disabled={pageC >= pageCount} onClick={() => setPage(pageC + 1)}>Next &rarr;</button>
+          </div>
+        )}
+        </>) : <div className="mut">{isAll ? "No professors yet." : "No professors in the selected buckets."}</div>}</div>
+
+      {modal?.type === "add" && <ProfessorFormModal buckets={buckets} onClose={() => setModal(null)} onSaved={closeAndReload} toast={toast} />}
+      {modal?.type === "edit" && <ProfessorFormModal initial={modal.prof} buckets={buckets} onClose={() => setModal(null)} onSaved={closeAndReload} toast={toast} />}
+      {modal?.type === "upload" && <UploadModal buckets={buckets} onClose={() => setModal(null)} onDone={closeAndReload} toast={toast} />}
+      {modal?.type === "assign" && <BucketAssignModal buckets={buckets} ids={modal.ids} onClose={() => setModal(null)} onDone={closeAndReload} toast={toast} />}
+      {modal?.type === "confirm" && <ConfirmModal title="Delete professor?" message={`Remove ${modal.prof.name || modal.prof.email} from your list? This can't be undone.`} onConfirm={async () => { await del(modal.prof.id); setModal(null); }} onClose={() => setModal(null)} />}
+      {modal?.type === "confirmBulk" && <ConfirmModal title={`Delete ${sel.size} professors?`} message="Remove all selected professors from your list? This can't be undone." onConfirm={async () => { await bulkDelete(); setModal(null); }} onClose={() => setModal(null)} />}
     </>
   );
 }
@@ -867,13 +1046,33 @@ function Templates({ toast }: any) {
   const [list, setList] = useState<any[]>([]);
   const [ed, setEd] = useState<any>({ name: "", subject: "", body: "" });
   const [loading, setLoading] = useState(true);
+  const [varsOpen, setVarsOpen] = useState(false);
   const load = () => api("/api/templates").then((x) => { setList(x); setLoading(false); });
   useEffect(() => { load(); }, []);
   const save = async () => { if (!ed.name) { toast("Name required"); return; } await api("/api/templates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(ed) }); toast("Saved"); setEd({ name: "", subject: "", body: "" }); load(); };
   const del = async (id: string) => { await api("/api/templates/" + id, { method: "DELETE" }); load(); };
   return (
     <>
-      <p className="lead">Variables: {"{{professor_last_name}}, {{university}}, {{topics}}, {{personalized}}, {{your_name}}"}</p>
+      <div className="card">
+        <div onClick={() => setVarsOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
+          <b>Template variables</b>
+          <span className="mut tiny">&amp; AI subject tip</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mut)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: "auto", transform: varsOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }}><path d="m6 9 6 6 6-6" /></svg>
+        </div>
+        {varsOpen && (
+          <div style={{ marginTop: 12 }}>
+            <div className="mut tiny">Use these tokens in your Subject and Body — each is filled in per professor.</div>
+            <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+              {["{{professor_name}}", "{{professor_last_name}}", "{{university}}", "{{topics}}", "{{personalized}}", "{{your_name}}", "{{subject_line}}"].map((v) => (
+                <code key={v} style={{ background: "var(--field)", border: "1px solid var(--line)", borderRadius: 6, padding: "3px 8px", fontSize: 12, fontFamily: "ui-monospace, Menlo, monospace", color: "var(--ink)" }}>{v}</code>
+              ))}
+            </div>
+            <div className="mut tiny" style={{ marginTop: 12, lineHeight: 1.6 }}>
+              <b style={{ color: "var(--acc)" }}>{"{{subject_line}}"}</b> is AI-written per professor. A strong match names the paper — e.g. &ldquo;inspired by your work on long-video understanding (ReMoRa)&rdquo; — and a weaker match uses topic keywords — e.g. &ldquo;inspired by your work on pattern recognition and image analysis&rdquo;. Default subject: &ldquo;Prospective Research Student - {"{{subject_line}}"}&rdquo;.
+            </div>
+          </div>
+        )}
+      </div>
       <div className="grid g2">
         <div className="card"><b>{ed.id ? "Edit" : "New"} template</b>
           <label style={{ marginTop: 10 }}>Name</label><input value={ed.name} onChange={(e) => setEd({ ...ed, name: e.target.value })} />
@@ -1422,7 +1621,7 @@ function FindProfessors({ toast }: any) {
               </label>
             </div>
             {shown.length ? (
-              <table><thead><tr><th style={{ width: 28 }} /><th style={{ width: 44 }}>#</th><th>Name</th><th>Institution</th><th>Country</th><th>Topics</th><th>Works</th><th>Cited</th><th>Email</th></tr></thead><tbody>
+              <table><thead><tr><th style={{ width: 28 }}><input type="checkbox" aria-label="Select all" checked={shown.length > 0 && shown.every((r) => sel[r.openalex_id])} onChange={() => setSel((s) => { const all = shown.every((r) => s[r.openalex_id]); const n = { ...s }; if (all) { for (const r of shown) delete n[r.openalex_id]; } else { for (const r of shown) n[r.openalex_id] = r; } return n; })} /></th><th style={{ width: 44 }}>#</th><th>Name</th><th>Institution</th><th>Country</th><th>Topics</th><th>Works</th><th>Cited</th><th>Email</th></tr></thead><tbody>
                 {shown.map((r, i) => (
                   <tr key={r.openalex_id} onClick={() => setDetail(r)} title="Click for details & papers" style={{ cursor: "pointer" }}
                     onMouseEnter={(e) => (e.currentTarget.style.background = "var(--field)")}
@@ -1519,7 +1718,7 @@ function EmailHarvest({ toast }: any) {
     load();
   };
   if (!d) return <Loader page />;
-  if (openCountry) return <CountryDetail code={openCountry} name={cname(openCountry)} onBack={() => setOpenCountry(null)} />;
+  if (openCountry) return <CountryDetail code={openCountry} name={cname(openCountry)} onBack={() => setOpenCountry(null)} toast={toast} />;
 
   const s = search.trim().toLowerCase();
   const cards = (d.countries || []).filter((c: any) => !s || c.country.toLowerCase().includes(s) || cname(c.country).toLowerCase().includes(s));
@@ -1571,21 +1770,66 @@ function EmailHarvest({ toast }: any) {
 }
 
 /* ---------- Email cache: one country's professors ---------- */
-function CountryDetail({ code, name, onBack }: any) {
-  const [q, setQ] = useState("");
+// Add mined professors (email already known) into the user's list + optional bucket.
+function AddMinedToBucketModal({ buckets, rows, onClose, onDone, toast }: any) {
+  const [bucket, setBucket] = useState("");
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async () => {
+    setBusy(true); setError("");
+    const bf: any = bucketPayload(bucket, newName);
+    try {
+      const j = await api("/api/professors/add-mined", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows, ...bf }) });
+      toast(`Added ${j.added} professor(s)${bf.bucket_id || bf.bucket_name ? " to bucket" : ""}`);
+      onDone();
+    } catch (e) { setError((e as Error)?.message || "Failed"); setBusy(false); }
+  };
+  return (
+    <ModalShell onClose={onClose} maxWidth={420} title={`Add ${rows.length} to my professors`}>
+      <div className="mut tiny" style={{ margin: "6px 0 10px" }}>Saved to your Professors list. Optionally file them into a bucket.</div>
+      <BucketSelect value={bucket} onChange={setBucket} buckets={buckets} newName={newName} setNewName={setNewName} />
+      {error && <div className="tiny" style={{ color: "var(--bad)", marginTop: 10 }}>{error}</div>}
+      <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+        <button className="btn sm sec" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className="btn sm" onClick={submit} disabled={busy}>{busy ? "Adding…" : "Add"}</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function CountryDetail({ code, name, onBack, toast }: any) {
+  const [nameQ, setNameQ] = useState("");
+  const [uniQ, setUniQ] = useState("");
+  const [fieldQ, setFieldQ] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [d, setD] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [buckets, setBuckets] = useState<any[]>([]);
+  const [sel, setSel] = useState<Record<string, any>>({}); // keyed by openalex_id, persists across pages
+  const [showAdd, setShowAdd] = useState(false);
+  useEffect(() => { api("/api/buckets").then(setBuckets).catch(() => {}); }, []);
   useEffect(() => {
     setLoading(true);
     const t = setTimeout(() => {
-      api(`/api/admin/harvest/country?code=${code}&q=${encodeURIComponent(q)}&page=${page}`)
+      const p = new URLSearchParams({ code, page: String(page), pageSize: String(pageSize) });
+      if (nameQ) p.set("name", nameQ);
+      if (uniQ) p.set("university", uniQ);
+      if (fieldQ) p.set("field", fieldQ);
+      api(`/api/admin/harvest/country?${p.toString()}`)
         .then((x) => { setD(x); setLoading(false); })
         .catch(() => setLoading(false));
     }, 250);
     return () => clearTimeout(t);
-  }, [code, q, page]);
+  }, [code, nameQ, uniQ, fieldQ, page, pageSize]);
   const pageCount = d ? Math.max(1, Math.ceil(d.total / d.pageSize)) : 1;
+  const rows: any[] = d?.rows || [];
+  const toggle = (r: any) => setSel((s) => { const n = { ...s }; if (n[r.openalex_id]) delete n[r.openalex_id]; else n[r.openalex_id] = r; return n; });
+  const allChecked = rows.length > 0 && rows.every((r) => sel[r.openalex_id]);
+  const toggleAll = () => setSel((s) => { const all = rows.every((r) => s[r.openalex_id]); const n = { ...s }; if (all) { for (const r of rows) delete n[r.openalex_id]; } else { for (const r of rows) n[r.openalex_id] = r; } return n; });
+  const selCount = Object.keys(sel).length;
+  const onFilter = (setter: (v: string) => void) => (e: any) => { setter(e.target.value); setPage(1); };
   return (
     <>
       <div className="row" style={{ gap: 12, alignItems: "center" }}>
@@ -1594,11 +1838,31 @@ function CountryDetail({ code, name, onBack }: any) {
       </div>
       <p className="lead">Professors with a found email{d ? ` · ${Number(d.total).toLocaleString()}` : ""}.</p>
       <div className="card">
-        <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Search name, university or email…" style={{ maxWidth: 360, height: 38, padding: "8px 12px", marginBottom: 14 }} />
-        {loading ? <Loader /> : (d?.rows?.length ? (
-          <table><thead><tr><th style={{ width: 44 }}>#</th><th>Name</th><th>Email</th><th>University</th><th>Field</th></tr></thead><tbody>
-            {d.rows.map((r: any, i: number) => (
+        <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
+          <input value={nameQ} onChange={onFilter(setNameQ)} placeholder="Professor name…" style={{ maxWidth: 200, height: 38, padding: "8px 12px" }} />
+          <input value={uniQ} onChange={onFilter(setUniQ)} placeholder="University…" style={{ maxWidth: 200, height: 38, padding: "8px 12px" }} />
+          <input value={fieldQ} onChange={onFilter(setFieldQ)} placeholder="Topic / field…" style={{ maxWidth: 200, height: 38, padding: "8px 12px" }} />
+          <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} className="pagesize" aria-label="Results per page" style={{ marginLeft: "auto" }}>
+            {[20, 50, 100, 200, 500, 1000].map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </div>
+
+        {selCount > 0 && (
+          <div className="row" style={{ gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+            <b>{selCount} selected</b>
+            <button className="btn sm" onClick={() => setShowAdd(true)}>Add to my professors / bucket</button>
+            <button className="btn sm sec" onClick={() => setSel({})}>Clear</button>
+          </div>
+        )}
+
+        {loading ? <Loader /> : (rows.length ? (
+          <table><thead><tr>
+            <th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th>
+            <th style={{ width: 44 }}>#</th><th>Name</th><th>Email</th><th>University</th><th>Field</th>
+          </tr></thead><tbody>
+            {rows.map((r: any, i: number) => (
               <tr key={r.openalex_id}>
+                <td><input type="checkbox" checked={!!sel[r.openalex_id]} onChange={() => toggle(r)} aria-label={`Select ${r.name}`} /></td>
                 <td className="mut">{(d.page - 1) * d.pageSize + i + 1}</td>
                 <td><b>{r.name || "—"}</b></td>
                 <td><a href={`mailto:${r.email}`} className="tiny" style={{ color: "var(--acc2)", wordBreak: "break-all" }}>{r.email}</a></td>
@@ -1607,7 +1871,7 @@ function CountryDetail({ code, name, onBack }: any) {
               </tr>
             ))}
           </tbody></table>
-        ) : <div className="mut">No professors with an email{q ? " match your search" : " yet"}.</div>)}
+        ) : <div className="mut">No professors with an email{(nameQ || uniQ || fieldQ) ? " match your filters" : " yet"}.</div>)}
         {pageCount > 1 && (
           <div className="row" style={{ justifyContent: "center", marginTop: 14, gap: 10 }}>
             <button className="btn sm sec" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>&larr; Prev</button>
@@ -1616,6 +1880,8 @@ function CountryDetail({ code, name, onBack }: any) {
           </div>
         )}
       </div>
+
+      {showAdd && <AddMinedToBucketModal buckets={buckets} rows={Object.values(sel)} onClose={() => setShowAdd(false)} onDone={() => { setShowAdd(false); setSel({}); }} toast={toast} />}
     </>
   );
 }

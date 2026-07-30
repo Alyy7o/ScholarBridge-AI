@@ -1,7 +1,7 @@
 import type { Professor } from "./types";
 
 export const DEFAULT_SUBJECT =
-  "Prospective graduate student interested in your research";
+  "Prospective Research Student - {{subject_line}}";
 
 export const DEFAULT_TEMPLATE = `Dear Professor {{professor_last_name}},
 
@@ -25,6 +25,7 @@ export function renderTemplate(
   prof: Professor,
   personalized: string,
   senderName: string,
+  subjectLine = "",
 ): { subject: string; body: string } {
   const vars: Record<string, string> = {
     professor_name: prof.name,
@@ -33,6 +34,7 @@ export function renderTemplate(
     topics: prof.topics || "",
     personalized,
     your_name: senderName || "Your Name",
+    subject_line: subjectLine,
   };
   let body = template || DEFAULT_TEMPLATE;
   let subject = subjectTemplate || DEFAULT_SUBJECT;
