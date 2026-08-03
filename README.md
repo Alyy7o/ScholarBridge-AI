@@ -6,7 +6,7 @@ AI-personalized professor outreach: research → draft → attach → **schedule
 ```
 Next.js (Vercel)  ──►  API route handlers  ──►  Supabase (Postgres + Auth + Storage)
        UI                 lib/ services              │
-                     OpenAlex / Semantic Scholar      │ cron (pg_cron every 5 min)
+                     Research graph / Semantic Scholar      │ cron (pg_cron every 5 min)
                      OpenRouter (DeepSeek/Qwen)        ▼
                      Gmail REST (send)          Edge Function `process-due` → Gmail
 ```

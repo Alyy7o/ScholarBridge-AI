@@ -17,6 +17,7 @@ export async function POST(req: Request) {
   let template = String(form.get("template") || "").trim();
   let subject = String(form.get("subject") || "").trim();
   const searchTopics = String(form.get("search_topics") || "").trim();
+  const tone = String(form.get("tone") || "default").trim();
 
   const bucketId = String(form.get("bucket_id") || "").trim();
 
@@ -64,7 +65,7 @@ export async function POST(req: Request) {
       const { papers, source } = await findPapers(p.name, p.university || "", 4, topicsForSearch);
       // `interest` (the sender's field) steers the strong-vs-weak match judgment
       // for the AI subject fragment.
-      const { paragraph, subjectLine } = await personalize(p.name, p.university || "", p.topics || searchTopics || "", papers, searchTopics || p.topics || "");
+      const { paragraph, subjectLine } = await personalize(p.name, p.university || "", p.topics || searchTopics || "", papers, searchTopics || p.topics || "", tone);
       const { subject: subj, body } = renderTemplate(template, subject, p, paragraph, senderName, subjectLine);
       return {
         professor_name: p.name, email: p.email, university: p.university || "",

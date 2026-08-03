@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import BrandLogo from "@/components/BrandLogo";
 
 async function api(path: string, opts: RequestInit = {}) {
   const r = await fetch(path, opts);
@@ -244,7 +245,7 @@ export default function Dashboard() {
   return (
     <div className="app">
       <aside className="side">
-        <div className="brand"><div className="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 1 8l11 5 9-4.09V15h2V8L12 3zM5 13.18v3.5C5 18.5 8.13 20 12 20s7-1.5 7-3.32v-3.5l-7 3.18-7-3.18z" /></svg></div><div><b>ScholarBridge</b><span>AI outreach scheduler</span></div></div>
+        <div className="brand"><div className="logo"><BrandLogo variant="app" size={34} priority /></div><div><b>ScholarBridge</b><span>AI outreach scheduler</span></div></div>
         <nav className="nav">
           {SECTIONS.map(([id, label]) => (
             <button key={id} className={id === section ? "on" : ""} onClick={() => setSection(id)}>
@@ -543,20 +544,36 @@ function Compose({ toast, go }: any) {
   const [file, setFile] = useState<File | null>(null);
   const [buckets, setBuckets] = useState<any[]>([]);
   const [bucketId, setBucketId] = useState("");
+  const [tone, setTone] = useState("default");
+  const [aiOff, setAiOff] = useState(false); // true when OPENROUTER_API_KEY isn't set
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [menuIdx, setMenuIdx] = useState<number | null>(null);
 
   const patchEmail = (i: number, patch: any) => setPreview((p) => p.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
   const removeEmail = (i: number) => { setPreview((p) => p.filter((_, idx) => idx !== i)); setEditIdx(null); };
 
-  useEffect(() => { api("/api/templates").then(setTpls); api("/api/professors").then(setProfs); api("/api/attachments").then(setAtts); api("/api/buckets").then(setBuckets).catch(() => {}); }, []);
+  // Reload the dropdown lists (templates / buckets / professors / attachments).
+  const loadLists = () => {
+    api("/api/templates").then(setTpls).catch(() => {});
+    api("/api/professors").then(setProfs).catch(() => {});
+    api("/api/attachments").then(setAtts).catch(() => {});
+    api("/api/buckets").then(setBuckets).catch(() => {});
+  };
+  useEffect(() => { loadLists(); }, []);
+  // Auto-refresh when returning to the tab, so newly-created templates/buckets show up.
+  useEffect(() => {
+    const onFocus = () => loadLists();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => { window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
+  }, []);
 
   const runAI = async () => {
     setBusy(true); setStatus("Researching & writing…");
     const fd = new FormData(); if (file) fd.append("file", file);
-    fd.append("template_id", tplId); fd.append("subject", subj); fd.append("search_topics", searchTopics); fd.append("professor_ids", "[]");
+    fd.append("template_id", tplId); fd.append("subject", subj); fd.append("search_topics", searchTopics); fd.append("tone", tone); fd.append("professor_ids", "[]");
     if (!file && bucketId) fd.append("bucket_id", bucketId);
-    try { const j = await api("/api/compose/ai", { method: "POST", body: fd }); setPreview(j.emails); setStatus(`${j.emails.length} drafted`); }
+    try { const j = await api("/api/compose/ai", { method: "POST", body: fd }); setPreview(j.emails); setAiOff(j.ai_enabled === false); setStatus(`${j.emails.length} drafted`); }
     catch (e: any) { setStatus("Error: " + e.message); } setBusy(false);
   };
   const runReady = async () => {
@@ -588,6 +605,14 @@ function Compose({ toast, go }: any) {
       </div>
       {mode === "ai" ? (
         <div className="card">
+          {aiOff && (
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: 12, marginBottom: 12, borderRadius: 10, border: "1px solid var(--bad, #ef4444)", background: "rgba(239,68,68,.08)" }}>
+              <span style={{ color: "var(--bad, #ef4444)", flexShrink: 0 }}>⚠</span>
+              <div className="tiny">
+                <b>AI writing is OFF.</b> Emails are using the basic offline template, so tone has no effect and wording is generic. Set the <code>OPENROUTER_API_KEY</code> environment variable (and redeploy) to turn on real AI personalization.
+              </div>
+            </div>
+          )}
           <Tips title="How to format your professors file">
             Upload an <b>Excel (.xlsx / .xls) or CSV</b>. The first row must be column headers, one professor per row. Required:
             <ul>
@@ -601,17 +626,37 @@ function Compose({ toast, go }: any) {
             </ul>
             Rows without a valid email (containing <code>@</code>) are skipped. Or skip the file and use your saved professors.
           </Tips>
-          <label>Professor bucket (from your saved professors)</label>
-          <select value={bucketId} onChange={(e) => setBucketId(e.target.value)} disabled={!!file}>
-            <option value="">{profs.length ? `All saved professors (${profs.length})` : "No saved professors"}</option>
-            {buckets.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.count})</option>)}
-          </select>
-          <div className="mut tiny" style={{ margin: "6px 0 14px" }}>Pick a bucket to email just that group, or leave on &ldquo;All saved&rdquo;. Uploading a file below overrides this.</div>
-          <label>Or upload an Excel/CSV instead</label>
+          <div className="row" style={{ justifyContent: "flex-end", marginBottom: 8 }}>
+            <button className="btn sm sec" onClick={() => { loadLists(); toast("Lists refreshed"); }} title="Reload templates, buckets, professors and attachments" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /><path d="M3 21v-5h5" /></svg>
+              Refresh
+            </button>
+          </div>
+          <div className="grid g2">
+            <div>
+              <label>Professor bucket (from your saved professors)</label>
+              <select value={bucketId} onChange={(e) => setBucketId(e.target.value)} disabled={!!file}>
+                <option value="">{profs.length ? `All saved professors (${profs.length})` : "No saved professors"}</option>
+                {buckets.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.count})</option>)}
+              </select>
+              <div className="mut tiny" style={{ marginTop: 6 }}>Pick a bucket, or leave on &ldquo;All saved&rdquo;. Uploading a file below overrides this.</div>
+            </div>
+            <div>
+              <label>Subject override (optional)</label>
+              <input value={subj} onChange={(e) => setSubj(e.target.value)} placeholder="Prospective Research Student - {{subject_line}}" />
+              <div className="mut tiny" style={{ marginTop: 6 }}>Include <code>{"{{subject_line}}"}</code> for an AI, per-professor line. Blank uses the template / default subject.</div>
+            </div>
+          </div>
+          <label style={{ marginTop: 14 }}>Or upload an Excel/CSV instead</label>
           <FileDrop file={file} onFile={setFile} accept=".xlsx,.xls,.csv" hint="XLSX, XLS or CSV file" />
           <div className="grid g2" style={{ marginTop: 14 }}>
             <div><label>Template</label><select value={tplId} onChange={(e) => setTplId(e.target.value)}><option value="">Built-in default</option>{tpls.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
-            <div><label>Subject override (optional)</label><input value={subj} onChange={(e) => setSubj(e.target.value)} placeholder="Prospective Research Student - {{subject_line}}" /><div className="mut tiny" style={{ marginTop: 6 }}>Include <code>{"{{subject_line}}"}</code> for an AI, per-professor line. Blank uses the template / default subject.</div></div>
+            <div><label>Email tone</label>
+              <select value={tone} onChange={(e) => setTone(e.target.value)}>
+                {[["default", "Default"], ["short", "Short"], ["long", "Long"], ["warm", "Warm"], ["friendly", "Friendly"], ["polite", "Polite"], ["professional", "Professional"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+              <div className="mut tiny" style={{ marginTop: 6 }}>Steers the length &amp; feel of the AI paragraph.</div>
+            </div>
           </div>
           <div style={{ marginTop: 12 }}><label>Research topics to search (optional)</label><input value={searchTopics} onChange={(e) => setSearchTopics(e.target.value)} placeholder="e.g. machine learning, protein folding — steers which papers are found" /><div className="mut tiny" style={{ marginTop: 6 }}>Used to search each professor's papers. Leave blank to use their own topics / field, or their most recent work.</div></div>
           <div className="row" style={{ marginTop: 14 }}><button className="btn" disabled={busy} onClick={runAI}>Research &amp; draft</button><span className="mut">{status}</span></div>
@@ -654,7 +699,6 @@ function Compose({ toast, go }: any) {
                 <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                   <b>{e.professor_name || e.email || "(no recipient)"}</b>
                   <div className="row" style={{ gap: 8, alignItems: "center" }}>
-                    {e.research_source && <span className="pill draft">{e.research_source}</span>}
                     {editIdx === i && <button className="btn sm" onClick={() => setEditIdx(null)}>Done</button>}
                     <div style={{ position: "relative" }}>
                       <button className="kebab" aria-label="More actions" onClick={() => setMenuIdx(menuIdx === i ? null : i)}>⋮</button>
@@ -1352,7 +1396,6 @@ function ProfessorDetailModal({ prof, email, onClose }: { prof: any; email?: str
     return () => { alive = false; };
   }, [prof.openalex_id]);
   const scholar = `https://scholar.google.com/scholar?q=${encodeURIComponent(`${prof.name} ${prof.institution || ""}`.trim())}`;
-  const openalex = prof.openalex_id ? `https://openalex.org/${prof.openalex_id}` : null;
   const orcid = prof.orcid ? `https://orcid.org/${prof.orcid}` : null;
   const linkBtn = (href: string, label: string) => (
     <a className="btn sm sec" href={href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>{label} ↗</a>
@@ -1379,7 +1422,6 @@ function ProfessorDetailModal({ prof, email, onClose }: { prof: any; email?: str
         <div className="row" style={{ gap: 8, marginTop: 14, flexWrap: "wrap" }}>
           {linkBtn(scholar, "Google Scholar")}
           {orcid && linkBtn(orcid, "ORCID")}
-          {openalex && linkBtn(openalex, "OpenAlex")}
         </div>
 
         <div style={{ marginTop: 18 }}>
@@ -1684,7 +1726,7 @@ function EmailHarvest({ toast }: any) {
   useEffect(() => { load(); }, []);
   useEffect(() => {
     if (!d?.active) return;
-    const t = setInterval(load, 6000);
+    const t = setInterval(load, 30000); // poll less often — stats scans a large table
     return () => clearInterval(t);
   }, [d?.active]);
   const toggle = async () => {

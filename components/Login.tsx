@@ -1,10 +1,7 @@
 "use client";
 import { useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-
-const CapLogo = () => (
-  <svg width="21" height="21" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 1 8l11 5 9-4.09V15h2V8L12 3zM5 13.18v3.5C5 18.5 8.13 20 12 20s7-1.5 7-3.32v-3.5l-7 3.18-7-3.18z" /></svg>
-);
+import BrandLogo from "@/components/BrandLogo";
 
 const GoogleG = () => (
   <svg width="17" height="17" viewBox="0 0 48 48" aria-hidden="true">
@@ -67,7 +64,7 @@ export default function Login() {
   return (
     <div className="auth">
       <aside className="auth-hero">
-        <div className="auth-badge"><span className="logo"><CapLogo /></span> ScholarBridge AI</div>
+        <div className="auth-badge"><span className="logo"><BrandLogo variant="app" size={56} priority /></span> ScholarBridge AI</div>
         <div>
           <h1>Reach the right professors, faster.</h1>
           <p className="htxt">Find professors by field and university, personalize every email with their recent research, and schedule your whole outreach campaign — in one place.</p>

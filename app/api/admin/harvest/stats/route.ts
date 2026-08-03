@@ -11,19 +11,18 @@ export async function GET() {
   const [{ data: ctrl }, { data: states }, { count: total }, { count: high }] = await Promise.all([
     admin.from("harvest_control").select("*").eq("id", 1).maybeSingle(),
     admin.from("harvest_state").select("*"),
-    // Only rows with an actual email count as "cached" (email-less professors are
-    // still saved, but shouldn't inflate the emails number).
-    admin.from("professor_emails").select("*", { count: "exact", head: true }).not("email", "is", null),
-    admin.from("professor_emails").select("*", { count: "exact", head: true }).eq("confidence", "high"),
+    // "estimated" uses the query planner instead of a full COUNT(*) scan — the
+    // exact figures aren't needed for a dashboard number and this table is large.
+    admin.from("professor_emails").select("*", { count: "estimated", head: true }).not("email", "is", null),
+    admin.from("professor_emails").select("*", { count: "estimated", head: true }).eq("confidence", "high"),
   ]);
   const order: string[] = ctrl?.order_list || ["cn", "jp", "kr", "tw", "sg"];
   const byC = new Map((states || []).map((s: any) => [s.country, s]));
 
-  // Reliable counts for the priority countries (direct queries — work even
-  // before the email_country_counts migration is applied).
+  // Per-country counts (estimated — avoids scanning the whole table each poll).
   const perPriority: Record<string, number> = {};
   await Promise.all(order.map(async (c) => {
-    const { count } = await admin.from("professor_emails").select("*", { count: "exact", head: true }).eq("country", c).not("email", "is", null);
+    const { count } = await admin.from("professor_emails").select("*", { count: "estimated", head: true }).eq("country", c).not("email", "is", null);
     perPriority[c] = count || 0;
   }));
 

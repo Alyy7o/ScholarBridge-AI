@@ -8,3 +8,7 @@ node_modules
 .next
 tsconfig.tsbuildinfo
 .env*
+
+globe-original-backup.glb
+
+public/models

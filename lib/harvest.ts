@@ -277,30 +277,32 @@ async function harvestWork(w: any): Promise<Found[]> {
   });
 }
 
-/** Upsert found emails into the shared cache, merging with existing rows. */
+/** Upsert found emails into the shared cache, merging with existing rows.
+ *  Only professors WITH an email are stored — email-less authors are skipped
+ *  entirely (they were the bulk of the table and a major disk-growth driver). */
 export async function storeEmails(admin: SupabaseClient, found: Found[]): Promise<number> {
   if (!found.length) return 0;
   const byId = new Map<string, Found>();
   for (const f of found) { const cur = byId.get(f.openalex_id); if (!cur || f.score > cur.score) byId.set(f.openalex_id, f); }
-  const ids = [...byId.keys()];
+  // Keep only authors we actually found an email for this batch.
+  const withEmail = [...byId.values()].filter((f) => typeof f.email === "string" && f.email.includes("@"));
+  if (!withEmail.length) return 0;
+  const ids = withEmail.map((f) => f.openalex_id);
   const { data: existing } = await admin.from("professor_emails").select("*").in("openalex_id", ids);
   const exMap = new Map((existing || []).map((r: any) => [r.openalex_id, r]));
   const nowYear = new Date().getFullYear();
-  const rows = [...byId.values()].map((f) => {
+  const rows = withEmail.map((f) => {
     const ex: any = exMap.get(f.openalex_id);
     const works = new Set<string>([...(ex?.source_work_ids || []), f.workId]);
     const seen = works.size;
     const lastYear = Math.max(ex?.last_seen_year || 0, f.year);
-    // Never wipe an email we already found; email-less authors are still saved.
     const email = f.email || ex?.email || "";
-    const hasEmail = !!email;
-    const score = f.email ? f.score : 0;
-    const strong = hasEmail && (score >= 5 || seen >= 2 || lastYear >= nowYear - 4);
+    const strong = email && (f.score >= 5 || seen >= 2 || lastYear >= nowYear - 4);
     return {
       openalex_id: f.openalex_id,
       name: f.name || ex?.name || "",
-      email: email || null,
-      domain: hasEmail ? (email.split("@")[1] || "") : "",
+      email,
+      domain: email.split("@")[1] || "",
       institution: f.institution || ex?.institution || "",
       country: (f.country || ex?.country || "").toLowerCase(),
       field: f.field || ex?.field || "",
@@ -308,7 +310,7 @@ export async function storeEmails(admin: SupabaseClient, found: Found[]): Promis
       times_seen: seen,
       first_seen_year: ex?.first_seen_year || f.year,
       last_seen_year: lastYear,
-      confidence: hasEmail ? (strong ? "high" : "low") : "none",
+      confidence: strong ? "high" : "low",
       updated_at: new Date().toISOString(),
     };
   });

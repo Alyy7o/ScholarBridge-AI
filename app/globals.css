@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root{--bg:#141414;--panel:#1C1C1E;--card:#1F1F1F;--line:#2e2e30;--ink:#f2f3f5;--mut:#9a9aa0;--acc:#22d3ee;--acc2:#38bdf8;--bad:#ef4444;--rad:16px;--field:#262627;--on-acc:#052a33;--field-hover:#2c2c2e}
 [data-theme="light"]{--bg:#eef2f8;--panel:#ffffff;--card:#ffffff;--line:#e1e8f1;--ink:#0f1c2e;--mut:#5f6b7d;--acc:#12b6cf;--acc2:#0e9cb5;--bad:#dc2626;--field:#f2f6fb;--on-acc:#ffffff;--field-hover:#e9f0f8}
 *{box-sizing:border-box}
@@ -7,7 +11,7 @@ a{color:var(--acc2)}
 .app{display:flex;min-height:100vh}
 .side{width:230px;flex:0 0 230px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:16px 12px;position:sticky;top:0;height:100vh}
 .brand{display:flex;align-items:center;gap:10px;padding:6px 8px 16px}
-.brand .logo{width:34px;height:34px;border-radius:9px;background:var(--acc);color:var(--on-acc);display:grid;place-items:center;font-weight:700}
+.brand .logo{width:34px;height:34px;border-radius:9px;overflow:hidden;display:grid;place-items:center;flex-shrink:0;background:transparent;padding:0}
 .brand b{font-size:15px}.brand span{display:block;font-size:11px;color:var(--mut)}
 .nav{display:flex;flex-direction:column;gap:2px;margin-top:6px}
 .nav button{display:flex;align-items:center;gap:10px;background:none;border:1px solid transparent;color:var(--mut);text-align:left;padding:10px 12px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer}
@@ -112,7 +116,7 @@ pre{white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.5;ma
 .chk input{width:auto}
 .login{min-height:100vh;display:grid;place-items:center;padding:20px}
 .login .box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:40px;max-width:420px;width:100%;text-align:center}
-.login .logo{width:56px;height:56px;border-radius:14px;background:var(--acc);color:var(--on-acc);display:grid;place-items:center;font-weight:700;font-size:22px;margin:0 auto 18px}
+.login .logo{width:56px;height:56px;border-radius:14px;overflow:hidden;display:grid;place-items:center;margin:0 auto 18px;background:transparent;padding:0}
 .gbtn{display:inline-flex;align-items:center;gap:10px;background:#fff;color:#1f2937;border:none;border-radius:10px;padding:12px 22px;font-weight:600;font-size:15px;cursor:pointer;margin-top:20px}
 /* Toggle switch */
 .tgl{display:inline-flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
@@ -165,8 +169,8 @@ pre{white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.5;ma
 /* Auth / login redesign */
 .auth{min-height:100vh;display:grid;grid-template-columns:1.05fr 1fr;background:var(--bg)}
 .auth-hero{position:relative;padding:56px 52px;display:flex;flex-direction:column;justify-content:center;gap:26px;background:var(--panel);border-right:1px solid var(--line)}
-.auth-badge{display:inline-flex;align-items:center;gap:11px;font-weight:700;font-size:15px;color:var(--ink)}
-.auth-badge .logo{width:38px;height:38px;border-radius:11px;background:var(--acc);color:var(--on-acc);display:grid;place-items:center}
+.auth-badge{display:inline-flex;align-items:center;gap:14px;font-weight:700;font-size:18px;color:var(--ink)}
+.auth-badge .logo{width:56px;height:56px;border-radius:14px;overflow:hidden;display:grid;place-items:center;background:transparent;padding:0}
 .auth-hero h1{font-size:34px;line-height:1.15;letter-spacing:-.5px;margin:0;color:var(--ink)}
 .auth-hero .htxt{font-size:15px;color:var(--mut);max-width:430px;line-height:1.6;margin:14px 0 0}
 .auth-feats{display:flex;flex-direction:column;gap:16px;margin-top:6px}
@@ -235,3 +239,19 @@ pre{white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.5;ma
 
 @media(max-width:1100px){.dash-grid,.mine-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:560px){.dash-grid,.mine-grid{grid-template-columns:1fr}}
+
+/* Responsive hero banner entrance */
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-slide-in-1 { animation: fadeSlideIn 0.7s ease both; animation-delay: 0.05s; }
+.animate-fade-slide-in-2 { animation: fadeSlideIn 0.75s ease both; animation-delay: 0.15s; }
+.animate-fade-slide-in-3 { animation: fadeSlideIn 0.8s ease both; animation-delay: 0.28s; }
+.animate-fade-slide-in-4 { animation: fadeSlideIn 0.85s ease both; animation-delay: 0.4s; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-slide-in-1,
+  .animate-fade-slide-in-2,
+  .animate-fade-slide-in-3,
+  .animate-fade-slide-in-4 { animation: none; opacity: 1; transform: none; }
+}
