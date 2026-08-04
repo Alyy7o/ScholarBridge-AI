@@ -2,17 +2,27 @@ import type { Paper } from "./types";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+const MAX_OUTPUT_TOKENS = 800;
 
-// The applicant's background, woven into every email. Override with the
-// STUDENT_BACKGROUND env var without touching code.
-const STUDENT_BACKGROUND =
-  process.env.STUDENT_BACKGROUND ||
-  'As co-author of "NeuroClip: A Deep Learning Enabled Context-Aware Multimodal System for Video Retrieval and Compression" (submitted to IBCAST 2026), I worked on aligning video content with text-based queries for retrieval.';
+/** Default applicant facts when profile + env are empty. */
+export const DEFAULT_STUDENT_BACKGROUND =
+  'As co-author of "NeuroClip: A Deep Learning Enabled Context-Aware Multimodal System for Video Retrieval and Compression" (submitted to FIT 2026), I worked on aligning video content with text-based queries for retrieval.';
+
+/** Resolve AI weave-in text: profile → STUDENT_BACKGROUND env → built-in default. */
+export function resolveStudentBackground(profileBackground?: string | null): string {
+  const fromProfile = (profileBackground || "").trim();
+  if (fromProfile) return fromProfile;
+  const fromEnv = (process.env.STUDENT_BACKGROUND || "").trim();
+  if (fromEnv) return fromEnv;
+  return DEFAULT_STUDENT_BACKGROUND;
+}
 
 const SYSTEM =
-  "You write concise, specific, personal academic outreach for a prospective " +
-  "graduate student. Never invent papers, facts, or results — use only the papers " +
-  "provided. Match the requested paragraph structure and tone exactly. Return only JSON.";
+  "You write concise, specific, research-centric academic outreach for a prospective " +
+  "graduate research student. Focus on research fit only — never mention scholarships, " +
+  "MEXT, funding, or admissions programs. Never invent papers, facts, or results — use " +
+  "only the papers provided. Match the requested paragraph structure and tone exactly. " +
+  "Return only JSON.";
 
 const TONE_INSTRUCTIONS: Record<string, string> = {
   short: "LENGTH: very brief — exactly 2 crisp sentences, no more.",
@@ -24,14 +34,14 @@ const TONE_INSTRUCTIONS: Record<string, string> = {
   default: "",
 };
 
-const STYLE_EXAMPLES = `Example A:
-I have been following your lab's work combining computer vision with natural language, and your recent work on mitigating temporal hallucination in video understanding with multimodal large language models was especially interesting to me, because understanding video content together with language is closely connected to what I have been working on. As co-author of "NeuroClip: A Deep Learning Enabled Context-Aware Multimodal System for Video Retrieval and Compression" (submitted to IBCAST 2026), I worked on aligning video content with text-based queries for retrieval, so your group's direction in vision and language is exactly the area I would like to pursue in more depth under your guidance.
+const STYLE_EXAMPLES = `Example A (strong paper match — vision + language):
+I have been following your lab's work on computer vision and natural language, and your recent work on style transfer in text was especially interesting to me because connecting visual or textual style with learned representations is closely related to what I have been building. As co-author of "NeuroClip: A Deep Learning Enabled Context-Aware Multimodal System for Video Retrieval and Compression" (submitted to FIT 2026), I worked on aligning video content with text-based queries for retrieval, so your group's direction is exactly the area I would like to pursue in more depth under your guidance.
 
-Example B:
-I have been following your lab's work on cross-modal and composed video retrieval, and your recent work on automatically constructing triplets for composed video retrieval was especially interesting to me, because retrieving a target video from a query plus a modification is very close to what I have been working on. As co-author of "NeuroClip: A Deep Learning Enabled Context-Aware Multimodal System for Video Retrieval and Compression" (submitted to IBCAST 2026), I worked on aligning video content with text-based queries for retrieval, so your group's direction in cross-modal video retrieval is exactly the area I would like to pursue in more depth under your guidance.
+Example B (strong paper match — composed video retrieval):
+I have been following your lab's work on cross-modal and composed video retrieval, and your recent work on automatically constructing triplets for composed video retrieval was especially interesting to me, because retrieving a target video from a query plus a modification is very close to what I have been working on. As co-author of "NeuroClip: A Deep Learning Enabled Context-Aware Multimodal System for Video Retrieval and Compression" (submitted to FIT 2026), I worked on aligning video content with text-based queries for retrieval, so your group's direction in cross-modal video retrieval is exactly the area I would like to pursue in more depth under your guidance.
 
-Example C (used when the topic is farther from the applicant's, still specific and honest):
-I have been following your lab's work in physics-based computer vision and human modeling, and your recent work on neural optimization for multiview human mesh recovery was especially interesting to me, particularly the idea of framing perception as an optimization problem solved by a learned model. As co-author of "NeuroClip: A Deep Learning Enabled Context-Aware Multimodal System for Video Retrieval and Compression" (submitted to IBCAST 2026), I worked on aligning video content with text-based queries for retrieval; while that sits closer to the retrieval and multimodal side of vision, it gave me a strong foundation in deep learning for video that I would be eager to extend toward the problems your lab studies.`;
+Example C (weaker topic overlap — still specific and honest):
+I have been following your lab's work in physics-based computer vision and human modeling, and your recent work on neural optimization for multiview human mesh recovery was especially interesting to me, particularly the idea of framing perception as an optimization problem solved by a learned model. As co-author of "NeuroClip: A Deep Learning Enabled Context-Aware Multimodal System for Video Retrieval and Compression" (submitted to FIT 2026), I worked on aligning video content with text-based queries for retrieval; while that sits closer to the retrieval and multimodal side of vision, it gave me a strong foundation in deep learning for video that I would be eager to extend toward the problems your lab studies.`;
 
 type ProviderId = "gemini" | "groq" | "openrouter";
 
@@ -60,16 +70,42 @@ function firstArea(topics: string): string {
   return t || "your research area";
 }
 
-function fallbackParagraph(topics: string, papers: Paper[]): string {
-  const area = firstArea(topics);
-  if (papers.length) {
-    return `I have been following your lab's work on ${area}, and I found your recent paper "${papers[0].title}" especially compelling. ${STUDENT_BACKGROUND} I would be grateful for the opportunity to explore ${area} in more depth under your guidance.`;
-  }
-  return `I have been following your lab's work on ${area}, which closely aligns with my own research interests. ${STUDENT_BACKGROUND} I would be grateful for the opportunity to explore this direction in more depth under your guidance.`;
+/** Short paper cue for subject lines — title fragment or leading acronym-ish phrase. */
+function paperCue(title: string): string {
+  const t = (title || "").trim();
+  if (!t) return "";
+  const beforeColon = t.split(":")[0].trim();
+  if (beforeColon.length > 0 && beforeColon.length <= 48) return beforeColon;
+  return t.length > 42 ? t.slice(0, 42).trim() + "…" : t;
 }
 
-function fallbackSubject(topics: string, _papers: Paper[]): string {
-  return `inspired by your work on ${firstArea(topics).toLowerCase()}`;
+function fallbackParagraph(topics: string, papers: Paper[], studentBackground: string): string {
+  const area = firstArea(topics).toLowerCase();
+  if (papers.length) {
+    const topicPhrase = paperCue(papers[0].title).replace(/[:\-–—].*$/, "").trim() || area;
+    return `I have been following your lab's work on ${area}, and your recent work on ${topicPhrase.toLowerCase()} was especially interesting to me because it connects closely to multimodal and retrieval problems I have been studying. ${studentBackground} I would be grateful for the opportunity to explore this direction in more depth under your guidance.`;
+  }
+  return `I have been following your lab's work on ${area}, which closely aligns with my own research interests. ${studentBackground} I would be grateful for the opportunity to explore this direction in more depth under your guidance.`;
+}
+
+function fallbackSubject(topics: string, papers: Paper[]): string {
+  const area = firstArea(topics).toLowerCase();
+  if (papers.length) {
+    // Prefer naming a real paper cue so the subject still surfaces their work.
+    const cue = paperCue(papers[0].title);
+    const topic = cue.replace(/[:\-–—].*$/, "").trim().toLowerCase() || area;
+    // Heuristic: video/retrieval/multimodal titles → strong-style subject with (Paper Cue)
+    const strong =
+      /video|retriev|multimodal|cross.?modal|vision|language|temporal|motif|represent/i.test(
+        papers[0].title + " " + (papers[0].abstract || ""),
+      );
+    if (strong) return `inspired by your work on ${topic} (${cue})`;
+    // Weaker match: still try to name a system/acronym from the title if present
+    const acronym = cue.match(/\b([A-Z]{2,}(?:-[A-Z0-9]+)?)\b/);
+    if (acronym) return `excited by your ${acronym[1]} ${area} work`;
+    return `inspired by your work on ${area}`;
+  }
+  return `inspired by your work on ${area}`;
 }
 
 function cleanSubjectLine(s: string): string {
@@ -106,9 +142,10 @@ function buildUserPrompt(
   papers: Paper[],
   interest: string,
   tone: string,
+  studentBackground: string,
 ): string {
   const toneLine = TONE_INSTRUCTIONS[tone] || "";
-  return `Write ONE personalized paragraph AND one short subject-line fragment for a cold email to a professor, in the exact style of the examples.
+  return `Write ONE personalized research paragraph AND one short subject-line fragment for a cold email to a professor, in the exact style of the examples.
 
 Professor: ${name}
 University/Lab: ${university || "(unknown)"}
@@ -118,23 +155,41 @@ Applicant's field / interests (use to judge how strongly a paper matches): ${int
 Their recent papers (pick the ONE that best matches the applicant's interests and refer to it as "your recent work on ..."):
 ${papersBlock(papers)}
 
-Applicant background to weave in (keep the paper title exact): ${STUDENT_BACKGROUND}
+Applicant background to weave in (keep the paper title exact): ${studentBackground}
 
 PARAGRAPH rules:
-- One flowing paragraph, 3-4 sentences (unless the tone note below says otherwise). No greeting, no sign-off, no quotes around the whole thing.${toneLine ? `\n- ${toneLine}` : ""}
-- CRITICAL — refer to the professor's area as ONE short, natural phrase of about 2-4 words (e.g. "video retrieval", "human pose estimation"). Do NOT paste their full topic list, do NOT enumerate several topics, and do NOT chain items with repeated "and"/commas. Pick the single most relevant area.
+- One flowing paragraph, 3-5 sentences (unless the tone note below says otherwise). No greeting, no sign-off, no quotes around the whole thing.${toneLine ? `\n- ${toneLine}` : ""}
+- CRITICAL — research fit only. Never mention scholarships, MEXT, funding, fellowships, or application programs.
+- CRITICAL — refer to the professor's area as ONE short, natural phrase of about 2-4 words (e.g. "video retrieval", "human pose estimation"). Do NOT paste their full topic list, do NOT enumerate several topics, and do NOT chain items with repeated "and"/commas. Prefer lowercase natural phrases over Title Case dumps.
 - Vary your sentence structure and word choice; avoid using "and" more than once per sentence.
 - Open naturally, e.g.: "I have been following your lab's work on <that ONE area>, and your recent work on <ONE paper above, paraphrased into a natural topic phrase — not the raw title, not in quotes> stood out to me because <a concrete reason it connects to the applicant's video/text/multimodal retrieval work>."
-- Then weave in the applicant background and close by pointing to that same specific area.
+- Then weave in the applicant background and close by pointing to that same specific research direction under their guidance.
 - Use ONLY the papers listed. Never invent a paper. If none are listed, describe their single main area and omit the "your recent work on ..." clause.
 
 SUBJECT-LINE rules — a short fragment that will appear right after "Prospective Research Student - ":
-- If ONE paper is a STRONG match to the applicant's interests, write: inspired by your work on <plain 3-6 word description of that paper's topic> (<a short 1-4 word name or acronym of that paper's method/model taken from its title>)
-    e.g. "inspired by your work on learning movement representations from video (Action Motifs)"
-- Otherwise, when there is NO strongly-matching paper to name, keep it SHORT: inspired by your work on <ONE concise area, 2-4 words> — NO parentheses, NO paper name.
-    e.g. "inspired by your work on video retrieval"
-- Use ONE concise area only — NEVER a comma- or "and"-separated list of their topics. All lowercase except proper nouns / acronyms / the paper name. No trailing period, no quotes. Never invent a paper. Max ~12 words if naming a paper; max ~8 words otherwise.
+Always try to surface the professor's real work in the subject. Never invent a paper, system, or acronym.
 
+STRONG match (paper clearly overlaps video / retrieval / multimodal / vision-language with the applicant):
+- Format EXACTLY: inspired by your work on <plain 3-8 word topic description> (<short method name OR title fragment from that REAL paper>)
+- Examples:
+  - inspired by your work on learning movement representations from video (Action Motifs)
+  - inspired by your work on temporal understanding in video (Temporal Insight Enhancement)
+- The parenthetical MUST be taken from the chosen paper's real title (method name, acronym, or short title fragment).
+
+WEAKER match (papers exist but overlap is thin — still prefer naming their work when possible):
+- Prefer naming a real system/acronym from their paper title when one exists:
+  - excited by your AURA-MFM cross-modal retrieval work
+- Or use a concise lab/area phrase with no fake parentheses:
+  - inspired by your work on pattern recognition and image analysis
+- Do NOT use (Paper Name) parentheses unless the paper is a genuine strong match.
+
+NO papers listed:
+- inspired by your work on <ONE concise area, 2-5 words> — no parentheses.
+
+Other subject rules:
+- ONE topic only — never a comma- or "and"-heavy dump of all their topics.
+- Lowercase except proper nouns / acronyms / the paper cue. No trailing period, no quotes.
+- Max ~16 words for strong (with parentheses); max ~12 words for weaker.
 Style examples (paragraph):
 ${STYLE_EXAMPLES}
 
@@ -163,6 +218,7 @@ async function callGemini(model: string, prompt: string): Promise<string> {
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
         temperature: 0.5,
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
         responseMimeType: "application/json",
       },
     }),
@@ -203,6 +259,7 @@ async function callOpenAiCompatible(
         { role: "user", content: prompt },
       ],
       temperature: 0.5,
+      max_tokens: MAX_OUTPUT_TOKENS,
       response_format: { type: "json_object" },
     }),
   });
@@ -257,7 +314,6 @@ function buildProviders(): Provider[] {
     },
   ];
 
-  // Second OpenRouter model as an extra step when primary OpenRouter fails.
   if (openrouterKey && openrouterFallback && openrouterFallback !== openrouterModel) {
     providers.push({
       id: "openrouter",
@@ -282,14 +338,16 @@ export async function personalize(
   papers: Paper[],
   interest = "",
   tone = "default",
+  studentBackground?: string | null,
 ): Promise<{ paragraph: string; subjectLine: string }> {
+  const background = resolveStudentBackground(studentBackground);
   const providers = buildProviders().filter((p) => p.ready);
   if (!providers.length) {
     console.warn("[personalize] No AI API keys set (GEMINI_API_KEY / GROQ_API_KEY / OPENROUTER_API_KEY) — offline fallback.");
-    return { paragraph: fallbackParagraph(topics, papers), subjectLine: fallbackSubject(topics, papers) };
+    return { paragraph: fallbackParagraph(topics, papers, background), subjectLine: fallbackSubject(topics, papers) };
   }
 
-  const prompt = buildUserPrompt(name, university, topics, papers, interest, tone);
+  const prompt = buildUserPrompt(name, university, topics, papers, interest, tone, background);
 
   for (const p of providers) {
     try {
@@ -310,5 +368,5 @@ export async function personalize(
   }
 
   console.error("[personalize] ALL providers failed — offline template. Check GEMINI / GROQ / OPENROUTER keys and quotas.");
-  return { paragraph: fallbackParagraph(topics, papers), subjectLine: fallbackSubject(topics, papers) };
+  return { paragraph: fallbackParagraph(topics, papers, background), subjectLine: fallbackSubject(topics, papers) };
 }

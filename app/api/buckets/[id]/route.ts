@@ -12,6 +12,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     .from("professor_buckets")
     .update({ name })
     .eq("id", params.id)
+    .eq("user_id", user.id)
     .select()
     .single();
   if (error) return err(error.message, 500);

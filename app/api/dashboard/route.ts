@@ -45,5 +45,13 @@ export async function GET() {
     professors: professors || 0,
     attachments: attachments || 0,
     sender_name: profile?.sender_name || "",
+    ai_background: profile?.ai_background || "",
+    university: profile?.university || "",
+    cgpa: profile?.cgpa || "",
+    work_blurb: profile?.work_blurb || "",
+    phone: profile?.phone || "",
+    linkedin_url: profile?.linkedin_url || "",
+    target_intake: profile?.target_intake || "",
+    email: profile?.email || user.email || "",
   });
 }

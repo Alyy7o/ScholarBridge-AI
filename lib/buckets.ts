@@ -43,3 +43,21 @@ export async function addMembers(
   if (!rows.length) return;
   await sb.from("professor_bucket_members").upsert(rows, { onConflict: "bucket_id,professor_id" });
 }
+
+/** Remove professors from a bucket. Silently ignores empty input. */
+export async function removeMembers(
+  sb: SupabaseClient,
+  userId: string,
+  bucketId: string | null,
+  professorIds: string[],
+): Promise<void> {
+  if (!bucketId || !professorIds.length) return;
+  const ids = professorIds.filter(Boolean);
+  if (!ids.length) return;
+  await sb
+    .from("professor_bucket_members")
+    .delete()
+    .eq("bucket_id", bucketId)
+    .eq("user_id", userId)
+    .in("professor_id", ids);
+}

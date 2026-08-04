@@ -30,7 +30,9 @@ Dashboard · Compose (AI personalization / ready-doc import / excel-ready) · Pr
 ### 3. Env (`.env.local` for dev, Vercel env for prod)
 See `.env.example`. Key ones:
 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
-`GEMINI_API_KEY` / `GROQ_API_KEY` / `OPENROUTER_API_KEY` (any one enables AI drafts; tried in that order), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXT_PUBLIC_SITE_URL`.
+`GEMINI_API_KEY` / `GROQ_API_KEY` / `OPENROUTER_API_KEY` (any one enables AI drafts; tried in that order), `COMPOSE_AI_CONCURRENCY` (default 4 — keep low on free tiers), optional `STUDENT_BACKGROUND` (research bridge sentence for AI paragraphs; research-only, no scholarship pitch), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXT_PUBLIC_SITE_URL`.
+
+**AI drafting tips:** Compose uses a research-centric template (intro → personalized paper bridge → merged bio/CV ask). Subject lines include a paper cue when a strong match exists. Free tiers: draft ~50–100 professors per sitting; larger batches will hit provider rate limits even with concurrency capping.
 
 ### 4. Run locally
 ```bash

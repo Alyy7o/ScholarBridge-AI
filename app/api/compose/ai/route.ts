@@ -8,6 +8,25 @@ import type { Professor } from "@/lib/types";
 
 export const maxDuration = 60;
 
+/** Run async work over items with a fixed concurrency (protects free-tier RPM/TPM). */
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) break;
+      results[i] = await fn(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 export async function POST(req: Request) {
   const { sb, user } = await requireUser();
   if (!user) return err("Unauthorized", 401);
@@ -29,7 +48,6 @@ export async function POST(req: Request) {
       return err(`Could not read Excel: ${(e as Error).message}`);
     }
   } else if (bucketId) {
-    // Pull the professors that belong to the chosen bucket.
     const { data: members } = await sb
       .from("professor_bucket_members")
       .select("professor_id")
@@ -54,25 +72,61 @@ export async function POST(req: Request) {
   template = template || DEFAULT_TEMPLATE;
   subject = subject || DEFAULT_SUBJECT;
 
-  const { data: profile } = await sb.from("profiles").select("sender_name").eq("id", user.id).maybeSingle();
-  const senderName = profile?.sender_name || "Your Name";
+  const { data: profile } = await sb
+    .from("profiles")
+    .select("sender_name, ai_background, university, cgpa, work_blurb, phone, linkedin_url, target_intake, email")
+    .eq("id", user.id)
+    .maybeSingle();
+  const senderName = profile?.sender_name || "Ali Javed";
+  const templateProfile = {
+    senderName,
+    university: profile?.university || undefined,
+    cgpa: profile?.cgpa || undefined,
+    workBlurb: profile?.work_blurb || undefined,
+    phone: profile?.phone || undefined,
+    email: profile?.email || user.email || undefined,
+    linkedin: profile?.linkedin_url || undefined,
+    targetIntake: profile?.target_intake || undefined,
+  };
 
-  const emails = await Promise.all(
-    profs.map(async (p) => {
-      // Topics to steer the paper search: the explicit search field wins, else
-      // the professor's own topics (e.g. the Excel "field"/"area" column).
-      const topicsForSearch = searchTopics || p.topics || "";
-      const { papers, source } = await findPapers(p.name, p.university || "", 4, topicsForSearch);
-      // `interest` (the sender's field) steers the strong-vs-weak match judgment
-      // for the AI subject fragment.
-      const { paragraph, subjectLine } = await personalize(p.name, p.university || "", p.topics || searchTopics || "", papers, searchTopics || p.topics || "", tone);
-      const { subject: subj, body } = renderTemplate(template, subject, p, paragraph, senderName, subjectLine);
-      return {
-        professor_name: p.name, email: p.email, university: p.university || "",
-        topics: p.topics || "", subject: subj, body, personalized: paragraph, subject_line: subjectLine,
-        research_source: source, papers_used: papers.map((x) => x.title), workflow: "ai",
-      };
-    }),
-  );
+  // Cap parallel AI calls so Gemini/Groq free tiers don't 429 the whole batch.
+  const concurrency = Math.max(1, Math.min(8, Number(process.env.COMPOSE_AI_CONCURRENCY || 4) || 4));
+
+  const emails = await mapPool(profs, concurrency, async (p) => {
+    const topicsForSearch = searchTopics || p.topics || "";
+    const { papers, source } = await findPapers(p.name, p.university || "", 4, topicsForSearch);
+    const { paragraph, subjectLine } = await personalize(
+      p.name,
+      p.university || "",
+      p.topics || searchTopics || "",
+      papers,
+      searchTopics || p.topics || "",
+      tone,
+      profile?.ai_background,
+    );
+    const { subject: subj, body } = renderTemplate(
+      template,
+      subject,
+      p,
+      paragraph,
+      senderName,
+      subjectLine,
+      templateProfile,
+    );
+    return {
+      professor_name: p.name,
+      email: p.email,
+      university: p.university || "",
+      topics: p.topics || "",
+      subject: subj,
+      body,
+      personalized: paragraph,
+      subject_line: subjectLine,
+      research_source: source,
+      papers_used: papers.map((x) => x.title),
+      workflow: "ai",
+    };
+  });
+
   return json({ emails, ai_enabled: isAiEnabled() });
 }

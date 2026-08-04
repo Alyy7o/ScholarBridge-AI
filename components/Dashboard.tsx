@@ -939,6 +939,95 @@ function BucketAssignModal({ buckets, ids, onClose, onDone, toast }: any) {
   );
 }
 
+/** Rename a bucket and set its full professor membership via checklist. */
+function EditBucketModal({ bucket, professors, onClose, onDone, toast }: any) {
+  const [name, setName] = useState(bucket.name || "");
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    api(`/api/buckets/${bucket.id}/members`)
+      .then((j) => {
+        setChecked(new Set(j.professor_ids || []));
+        if (j.bucket?.name) setName(j.bucket.name);
+        setReady(true);
+      })
+      .catch((e) => {
+        setError((e as Error)?.message || "Could not load members");
+        setReady(true);
+      });
+  }, [bucket.id]);
+
+  const toggle = (id: string) =>
+    setChecked((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  const submit = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) { setError("Bucket name required"); return; }
+    setBusy(true); setError("");
+    try {
+      if (trimmed !== bucket.name) {
+        await api(`/api/buckets/${bucket.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: trimmed }),
+        });
+      }
+      await api(`/api/buckets/${bucket.id}/members`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ professor_ids: [...checked] }),
+      });
+      toast("Bucket updated");
+      onDone();
+    } catch (e) {
+      setError((e as Error)?.message || "Failed");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <ModalShell onClose={onClose} maxWidth={520} title="Edit bucket">
+      <label style={{ marginTop: 12 }}>Name</label>
+      <input value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%" }} />
+      <label style={{ marginTop: 14 }}>Professors in this bucket</label>
+      <div className="mut tiny" style={{ marginBottom: 8 }}>Check to add, uncheck to remove. Professors themselves are not deleted.</div>
+      {!ready ? (
+        <div className="mut tiny">Loading…</div>
+      ) : (
+        <div style={{ maxHeight: 320, overflow: "auto", border: "1px solid var(--border, #2a2f38)", borderRadius: 8, padding: "6px 10px" }}>
+          {(professors || []).length === 0 ? (
+            <div className="mut tiny">No saved professors yet.</div>
+          ) : (
+            (professors || []).map((p: any) => (
+              <label key={p.id} className="chk" style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer", padding: "6px 2px", fontSize: 13 }}>
+                <input type="checkbox" checked={checked.has(p.id)} onChange={() => toggle(p.id)} style={{ marginTop: 3 }} />
+                <span>
+                  <b>{p.name || p.email}</b>
+                  <div className="mut tiny">{p.email}{p.university ? ` · ${p.university}` : ""}</div>
+                </span>
+              </label>
+            ))
+          )}
+        </div>
+      )}
+      <div className="mut tiny" style={{ marginTop: 8 }}>{checked.size} selected</div>
+      {error && <div className="tiny" style={{ color: "var(--bad)", marginTop: 10 }}>{error}</div>}
+      <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+        <button className="btn sm sec" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className="btn sm" onClick={submit} disabled={busy || !ready}>{busy ? "Saving…" : "Save"}</button>
+      </div>
+    </ModalShell>
+  );
+}
+
 // Filter icon → dropdown of bucket checkboxes (default: all on). selB === null means "all".
 function BucketFilter({ buckets, selB, setSelB, allKeys }: any) {
   const [open, setOpen] = useState(false);
@@ -1036,6 +1125,7 @@ function Professors({ toast }: any) {
           {buckets.map((b) => (
             <span key={b.id} className="pill draft" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
               {b.name} ({b.count})
+              <button className="chip-x" title="Edit bucket" onClick={() => setModal({ type: "editBucket", bucket: b })} style={{ lineHeight: 1, fontSize: 11 }}>✎</button>
               <button className="chip-x" title="Delete bucket" onClick={() => delBucket(b.id)} style={{ lineHeight: 1 }}>×</button>
             </span>
           ))}
@@ -1079,6 +1169,7 @@ function Professors({ toast }: any) {
       {modal?.type === "edit" && <ProfessorFormModal initial={modal.prof} buckets={buckets} onClose={() => setModal(null)} onSaved={closeAndReload} toast={toast} />}
       {modal?.type === "upload" && <UploadModal buckets={buckets} onClose={() => setModal(null)} onDone={closeAndReload} toast={toast} />}
       {modal?.type === "assign" && <BucketAssignModal buckets={buckets} ids={modal.ids} onClose={() => setModal(null)} onDone={closeAndReload} toast={toast} />}
+      {modal?.type === "editBucket" && <EditBucketModal bucket={modal.bucket} professors={list} onClose={() => setModal(null)} onDone={closeAndReload} toast={toast} />}
       {modal?.type === "confirm" && <ConfirmModal title="Delete professor?" message={`Remove ${modal.prof.name || modal.prof.email} from your list? This can't be undone.`} onConfirm={async () => { await del(modal.prof.id); setModal(null); }} onClose={() => setModal(null)} />}
       {modal?.type === "confirmBulk" && <ConfirmModal title={`Delete ${sel.size} professors?`} message="Remove all selected professors from your list? This can't be undone." onConfirm={async () => { await bulkDelete(); setModal(null); }} onClose={() => setModal(null)} />}
     </>
@@ -1112,7 +1203,7 @@ function Templates({ toast }: any) {
               ))}
             </div>
             <div className="mut tiny" style={{ marginTop: 12, lineHeight: 1.6 }}>
-              <b style={{ color: "var(--acc)" }}>{"{{subject_line}}"}</b> is AI-written per professor. A strong match names the paper — e.g. &ldquo;inspired by your work on long-video understanding (ReMoRa)&rdquo; — and a weaker match uses topic keywords — e.g. &ldquo;inspired by your work on pattern recognition and image analysis&rdquo;. Default subject: &ldquo;Prospective Research Student - {"{{subject_line}}"}&rdquo;.
+              <b style={{ color: "var(--acc)" }}>{"{{subject_line}}"}</b> is AI-written per professor. Strong paper match: &ldquo;inspired by your work on learning movement representations from video (Action Motifs)&rdquo;. Weaker match: &ldquo;inspired by your work on pattern recognition and image analysis&rdquo; or &ldquo;excited by your AURA-MFM cross-modal retrieval work&rdquo;. Default subject: &ldquo;Prospective Research Student - {"{{subject_line}}"}&rdquo;.
             </div>
           </div>
         )}
@@ -1930,14 +2021,64 @@ function CountryDetail({ code, name, onBack, toast }: any) {
 
 /* ---------- Settings ---------- */
 function Settings({ toast }: any) {
-  const [d, setD] = useState<any>(null); const [quota, setQuota] = useState(500); const [name, setName] = useState("");
-  const load = () => api("/api/dashboard").then((x) => { setD(x); setQuota(x.stats.daily_quota); setName(x.sender_name || ""); });
+  const [d, setD] = useState<any>(null);
+  const [quota, setQuota] = useState(500);
+  const [name, setName] = useState("");
+  const [aiBackground, setAiBackground] = useState("");
+  const [university, setUniversity] = useState("");
+  const [cgpa, setCgpa] = useState("");
+  const [workBlurb, setWorkBlurb] = useState("");
+  const [phone, setPhone] = useState("");
+  const [linkedin, setLinkedin] = useState("");
+  const [targetIntake, setTargetIntake] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const load = () =>
+    api("/api/dashboard").then((x) => {
+      setD(x);
+      setQuota(x.stats.daily_quota);
+      setName(x.sender_name || "");
+      setAiBackground(x.ai_background || "");
+      setUniversity(x.university || "");
+      setCgpa(x.cgpa || "");
+      setWorkBlurb(x.work_blurb || "");
+      setPhone(x.phone || "");
+      setLinkedin(x.linkedin_url || "");
+      setTargetIntake(x.target_intake || "");
+    });
   useEffect(() => { load(); }, []);
-  const save = async () => { await api("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ daily_quota: quota, sender_name: name }) }); toast("Saved"); load(); };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          daily_quota: quota,
+          sender_name: name,
+          ai_background: aiBackground,
+          university,
+          cgpa,
+          work_blurb: workBlurb,
+          phone,
+          linkedin_url: linkedin,
+          target_intake: targetIntake,
+        }),
+      });
+      toast("Saved");
+      load();
+    } catch (e) {
+      toast((e as Error)?.message || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!d) return <Loader page />;
   return (
     <>
-      <p className="lead">Gmail connection, sender name, and sending quota.</p>
+      <p className="lead">Gmail connection, sender identity, AI email context, and sending quota.</p>
       <div className="card"><div className="row" style={{ justifyContent: "space-between" }}>
         <div><b>Gmail</b><div className="mut">{d.gmail.needs_reconnect ? "Connection expired — reconnect to resume sending" : d.gmail.connected ? `Connected as ${d.gmail.email || "—"}` : "Not connected — sends run in dry-run mode"}</div></div>
         <span className={`pill ${d.gmail.needs_reconnect ? "off" : d.gmail.connected ? "on" : "off"}`}>{d.gmail.needs_reconnect ? "EXPIRED" : d.gmail.connected ? "CONNECTED" : "DRY-RUN"}</span></div>
@@ -1945,11 +2086,64 @@ function Settings({ toast }: any) {
           ? <div className="row" style={{ marginTop: 10 }}><button className="btn sm" onClick={reconnectGoogle}>Reconnect Google</button></div>
           : !d.gmail.connected && <div className="mut tiny" style={{ marginTop: 10 }}>Gmail connects automatically when you sign in with Google (with send permission). If it shows dry-run, sign out and back in and grant Gmail access.</div>}
       </div>
-      <div className="card"><label>Your name (fills {"{{your_name}}"})</label><div className="row"><input value={name} onChange={(e) => setName(e.target.value)} style={{ maxWidth: 320 }} /></div>
-        <label style={{ marginTop: 14 }}>Daily sending quota</label><div className="row"><input type="number" value={quota} onChange={(e) => setQuota(parseInt(e.target.value) || 500)} style={{ maxWidth: 160 }} /><button className="btn sm" onClick={save}>Save</button></div>
-        <div className="mut tiny" style={{ marginTop: 8 }}>Used today: {d.stats.sent_today} · remaining: {d.stats.remaining_quota}</div></div>
+
+      <div className="card">
+        <b>Email / AI profile</b>
+        <div className="mut tiny" style={{ margin: "6px 0 12px" }}>
+          Used when composing AI emails: research background is woven into the personalized paragraph; the other fields fill template tokens like {"{{university}}"} and {"{{cgpa}}"}.
+        </div>
+        <label>Your name (fills {"{{your_name}}"})</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} style={{ maxWidth: 420, width: "100%" }} />
+        <label style={{ marginTop: 12 }}>University / affiliation (fills {"{{university}}"})</label>
+        <input value={university} onChange={(e) => setUniversity(e.target.value)} placeholder="e.g. the National University of Modern Languages (NUML), Faisalabad, Pakistan" style={{ maxWidth: 560, width: "100%" }} />
+        <div className="row" style={{ gap: 12, flexWrap: "wrap", marginTop: 12 }}>
+          <div style={{ flex: "1 1 140px", maxWidth: 200 }}>
+            <label>CGPA (fills {"{{cgpa}}"})</label>
+            <input value={cgpa} onChange={(e) => setCgpa(e.target.value)} placeholder="3.48/4.0" style={{ width: "100%" }} />
+          </div>
+          <div style={{ flex: "1 1 140px", maxWidth: 200 }}>
+            <label>Target intake (fills {"{{target_intake}}"})</label>
+            <input value={targetIntake} onChange={(e) => setTargetIntake(e.target.value)} placeholder="Fall 2027" style={{ width: "100%" }} />
+          </div>
+        </div>
+        <label style={{ marginTop: 12 }}>AI research background</label>
+        <div className="mut tiny" style={{ marginBottom: 6 }}>One or two sentences the AI weaves into every personalized paragraph (paper title, your role, venue).</div>
+        <textarea
+          value={aiBackground}
+          onChange={(e) => setAiBackground(e.target.value)}
+          rows={4}
+          placeholder='As co-author of "NeuroClip: …" (submitted to FIT 2026), I worked on …'
+          style={{ width: "100%", maxWidth: 640, resize: "vertical" }}
+        />
+        <label style={{ marginTop: 12 }}>Work / experience blurb (fills {"{{work_blurb}}"})</label>
+        <textarea
+          value={workBlurb}
+          onChange={(e) => setWorkBlurb(e.target.value)}
+          rows={2}
+          placeholder="I have over two years of experience in software and AI development as a Full Stack Developer at Xylator AI."
+          style={{ width: "100%", maxWidth: 640, resize: "vertical" }}
+        />
+        <div className="row" style={{ gap: 12, flexWrap: "wrap", marginTop: 12 }}>
+          <div style={{ flex: "1 1 200px", maxWidth: 280 }}>
+            <label>Phone (fills {"{{phone}}"})</label>
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} style={{ width: "100%" }} />
+          </div>
+          <div style={{ flex: "1 1 260px", maxWidth: 360 }}>
+            <label>LinkedIn (fills {"{{linkedin}}"})</label>
+            <input value={linkedin} onChange={(e) => setLinkedin(e.target.value)} style={{ width: "100%" }} />
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <label>Daily sending quota</label>
+        <div className="row" style={{ gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <input type="number" value={quota} onChange={(e) => setQuota(parseInt(e.target.value) || 500)} style={{ maxWidth: 160 }} />
+          <button className="btn sm" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save all settings"}</button>
+        </div>
+        <div className="mut tiny" style={{ marginTop: 8 }}>Used today: {d.stats.sent_today} · remaining: {d.stats.remaining_quota}</div>
+      </div>
       <EmailTester toast={toast} />
-   
     </>
   );
 }
