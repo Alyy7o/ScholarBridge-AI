@@ -4,6 +4,7 @@ import { parseProfessors } from "@/lib/parse";
 import { findPapers } from "@/lib/research";
 import { personalize, isAiEnabled } from "@/lib/personalize";
 import { renderTemplate, DEFAULT_TEMPLATE, DEFAULT_SUBJECT } from "@/lib/template";
+import { stripHtml } from "@/lib/text";
 import type { Professor } from "@/lib/types";
 
 export const maxDuration = 60;
@@ -123,7 +124,7 @@ export async function POST(req: Request) {
       personalized: paragraph,
       subject_line: subjectLine,
       research_source: source,
-      papers_used: papers.map((x) => x.title),
+      papers_used: papers.map((x) => stripHtml(x.title)),
       workflow: "ai",
     };
   });

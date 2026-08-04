@@ -1,4 +1,5 @@
 import type { Paper } from "./types";
+import { stripHtml } from "./text";
 
 const OPENALEX = "https://api.openalex.org";
 const SEMANTIC = "https://api.semanticscholar.org/graph/v1";
@@ -41,9 +42,9 @@ async function openalex(name: string, university: string, limit: number, topics 
   const toPapers = (arr: any[]): Paper[] =>
     (arr || [])
       .map((x: any): Paper => ({
-        title: (x.title || x.display_name || "").trim(),
+        title: stripHtml(x.title || x.display_name || ""),
         year: x.publication_year,
-        abstract: reconstructAbstract(x.abstract_inverted_index),
+        abstract: stripHtml(reconstructAbstract(x.abstract_inverted_index)),
         source: "openalex",
       }))
       .filter((p: Paper) => p.title);
@@ -67,9 +68,9 @@ async function semanticScholar(name: string, limit: number): Promise<Paper[]> {
   const p = await j(`${SEMANTIC}/author/${id}/papers?fields=title,abstract,year&limit=${limit}`);
   return (p.data || [])
     .map((x: any): Paper => ({
-      title: (x.title || "").trim(),
+      title: stripHtml(x.title || ""),
       year: x.year,
-      abstract: (x.abstract || "").slice(0, 1200),
+      abstract: stripHtml((x.abstract || "").slice(0, 1200)),
       source: "semantic_scholar",
     }))
     .filter((x: Paper) => x.title)

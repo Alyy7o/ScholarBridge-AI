@@ -536,7 +536,7 @@ function Compose({ toast, go }: any) {
   const [sameTime, setSameTime] = useState(true);
   const [oneTime, setOneTime] = useState({ hour: 9, minute: 0 });
   const [perDateTimes, setPerDateTimes] = useState<Record<string, { hour: number; minute: number }>>({});
-  const [perSlot, setPerSlot] = useState(5);
+  const [perSlot, setPerSlot] = useState<number | "">(5);
   const [spread, setSpread] = useState(true);
   const [tz, setTz] = useState(() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; } });
   const toggleDate = (k: string) => setDates((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
@@ -587,10 +587,11 @@ function Compose({ toast, go }: any) {
   const commit = async () => {
     const ds = [...dates].sort();
     if (!ds.length) { setStatus("Pick at least one date"); return; }
+    const slotCount = typeof perSlot === "number" && perSlot > 0 ? perSlot : 1;
     const slots = ds.map((d) => { const t = sameTime ? oneTime : (perDateTimes[d] || oneTime); return { date: d, hour: t.hour, minute: t.minute }; });
-    if (slots.length * perSlot < preview.length) { setStatus(`Only ${slots.length * perSlot} slot(s) for ${preview.length} emails — add dates or raise per-slot.`); return; }
+    if (slots.length * slotCount < preview.length) { setStatus(`Only ${slots.length * slotCount} slot(s) for ${preview.length} emails — add dates or raise per-slot.`); return; }
     setBusy(true); setStatus("");
-    const schedule = { slots, per_slot: perSlot, spread, timezone: tz };
+    const schedule = { slots, per_slot: slotCount, spread, timezone: tz };
     try { const j = await api("/api/schedule/commit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ emails: preview, schedule, attachment_ids: pickAtt }) }); toast(`Scheduled ${j.scheduled}`); setPreview([]); go("history"); }
     catch (e: any) { setStatus("Error: " + e.message); } setBusy(false);
   };
@@ -714,7 +715,7 @@ function Compose({ toast, go }: any) {
                     </div>
                   </div>
                 </div>
-                {e.papers_used?.length ? <div className="tiny mut" style={{ marginTop: 4 }}>Papers: {e.papers_used.join(" · ")}</div> : null}
+                {e.papers_used?.length ? <div className="tiny mut" style={{ marginTop: 4 }}>Papers: {e.papers_used.map((t: string) => String(t || "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim()).filter(Boolean).join(" · ")}</div> : null}
                 {editIdx === i ? (
                   <div style={{ marginTop: 8 }}>
                     <label>Recipient email</label>
@@ -736,7 +737,7 @@ function Compose({ toast, go }: any) {
           </div>
           <div className="card">
             <b>Schedule</b>
-            <div className="mut tiny" style={{ margin: "4px 0 14px" }}>Pick the dates to send on, set the time, then schedule. {preview.length} email(s) to place · {[...dates].length * perSlot} slot(s) available.</div>
+            <div className="mut tiny" style={{ margin: "4px 0 14px" }}>Pick the dates to send on, set the time, then schedule. {preview.length} email(s) to place · {[...dates].length * (typeof perSlot === "number" && perSlot > 0 ? perSlot : 1)} slot(s) available.</div>
 
             <label>Send dates</label>
             <MiniCalendar selected={dates} onToggle={toggleDate} />
@@ -770,7 +771,25 @@ function Compose({ toast, go }: any) {
               </div>
               <div>
                 <div className="grid g2">
-                  <div><label>Per slot</label><input type="number" min={1} value={perSlot} onChange={(e) => setPerSlot(parseInt(e.target.value) || 1)} /></div>
+                  <div>
+                    <label>Per slot</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={perSlot}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === "") setPerSlot("");
+                        else {
+                          const n = parseInt(v, 10);
+                          setPerSlot(Number.isFinite(n) ? n : "");
+                        }
+                      }}
+                      onBlur={() => {
+                        if (perSlot === "" || (typeof perSlot === "number" && perSlot < 1)) setPerSlot(1);
+                      }}
+                    />
+                  </div>
                   <div><label>Timezone</label><select value={tz} onChange={(e) => setTz(e.target.value)}>{TZ_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>
                 </div>
                 <div style={{ marginTop: 16 }}><Toggle checked={spread} onChange={setSpread} label="Spread within the hour (:00, :15…) — off = all at the exact time" /></div>
@@ -791,11 +810,27 @@ function Compose({ toast, go }: any) {
 /* ---------- Professors ---------- */
 const NEW_BUCKET = "__new__";
 // Full-screen modal shell reused by the professor add/edit/upload/confirm popups.
-function ModalShell({ onClose, maxWidth = 460, title, children }: { onClose: () => void; maxWidth?: number; title?: React.ReactNode; children: React.ReactNode }) {
+function ModalShell({
+  onClose,
+  maxWidth = 460,
+  title,
+  children,
+  bodyStyle,
+}: {
+  onClose: () => void;
+  maxWidth?: number;
+  title?: React.ReactNode;
+  children: React.ReactNode;
+  bodyStyle?: React.CSSProperties;
+}) {
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div className="card" onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth, maxHeight: "88vh", overflow: "auto", padding: 18, marginBottom: 0 }}>
-        {title ? <b style={{ fontSize: 15 }}>{title}</b> : null}
+      <div
+        className="card"
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: "100%", maxWidth, maxHeight: "88vh", overflow: "auto", padding: 18, marginBottom: 0, ...bodyStyle }}
+      >
+        {title ? <b style={{ fontSize: 15, flexShrink: 0 }}>{title}</b> : null}
         {children}
       </div>
     </div>
@@ -994,15 +1029,20 @@ function EditBucketModal({ bucket, professors, onClose, onDone, toast }: any) {
   };
 
   return (
-    <ModalShell onClose={onClose} maxWidth={520} title="Edit bucket">
-      <label style={{ marginTop: 12 }}>Name</label>
-      <input value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%" }} />
-      <label style={{ marginTop: 14 }}>Professors in this bucket</label>
-      <div className="mut tiny" style={{ marginBottom: 8 }}>Check to add, uncheck to remove. Professors themselves are not deleted.</div>
+    <ModalShell
+      onClose={onClose}
+      maxWidth={520}
+      title="Edit bucket"
+      bodyStyle={{ overflow: "hidden", display: "flex", flexDirection: "column", gap: 0 }}
+    >
+      <label style={{ marginTop: 12, flexShrink: 0 }}>Name</label>
+      <input value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%", flexShrink: 0 }} />
+      <label style={{ marginTop: 14, flexShrink: 0 }}>Professors in this bucket</label>
+      <div className="mut tiny" style={{ marginBottom: 8, flexShrink: 0 }}>Check to add, uncheck to remove. Professors themselves are not deleted.</div>
       {!ready ? (
         <div className="mut tiny">Loading…</div>
       ) : (
-        <div style={{ maxHeight: 320, overflow: "auto", border: "1px solid var(--border, #2a2f38)", borderRadius: 8, padding: "6px 10px" }}>
+        <div style={{ flex: "1 1 auto", minHeight: 120, maxHeight: "min(48vh, 380px)", overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 10px" }}>
           {(professors || []).length === 0 ? (
             <div className="mut tiny">No saved professors yet.</div>
           ) : (
@@ -1018,9 +1058,9 @@ function EditBucketModal({ bucket, professors, onClose, onDone, toast }: any) {
           )}
         </div>
       )}
-      <div className="mut tiny" style={{ marginTop: 8 }}>{checked.size} selected</div>
-      {error && <div className="tiny" style={{ color: "var(--bad)", marginTop: 10 }}>{error}</div>}
-      <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+      <div className="mut tiny" style={{ marginTop: 8, flexShrink: 0 }}>{checked.size} selected</div>
+      {error && <div className="tiny" style={{ color: "var(--bad)", marginTop: 10, flexShrink: 0 }}>{error}</div>}
+      <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 16, flexShrink: 0 }}>
         <button className="btn sm sec" onClick={onClose} disabled={busy}>Cancel</button>
         <button className="btn sm" onClick={submit} disabled={busy || !ready}>{busy ? "Saving…" : "Save"}</button>
       </div>

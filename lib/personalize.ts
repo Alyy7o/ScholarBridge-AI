@@ -1,4 +1,5 @@
 import type { Paper } from "./types";
+import { stripHtml } from "./text";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
@@ -58,9 +59,10 @@ function papersBlock(papers: Paper[]): string {
   return papers
     .slice(0, 5)
     .map((p) => {
-      let s = (p.abstract || "").replace(/\s+/g, " ").trim();
+      let s = stripHtml(p.abstract || "").replace(/\s+/g, " ").trim();
       if (s.length > 320) s = s.slice(0, 320) + "…";
-      return `- "${p.title}"${p.year ? ` (${p.year})` : ""} — ${s || "no abstract"}`;
+      const title = stripHtml(p.title || "");
+      return `- "${title}"${p.year ? ` (${p.year})` : ""} — ${s || "no abstract"}`;
     })
     .join("\n");
 }
@@ -72,7 +74,7 @@ function firstArea(topics: string): string {
 
 /** Short paper cue for subject lines — title fragment or leading acronym-ish phrase. */
 function paperCue(title: string): string {
-  const t = (title || "").trim();
+  const t = stripHtml(title || "").trim();
   if (!t) return "";
   const beforeColon = t.split(":")[0].trim();
   if (beforeColon.length > 0 && beforeColon.length <= 48) return beforeColon;
