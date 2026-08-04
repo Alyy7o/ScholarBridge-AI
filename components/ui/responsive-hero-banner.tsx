@@ -70,6 +70,7 @@ const ResponsiveHeroBanner: React.FC<ResponsiveHeroBannerProps> = ({
     { label: "Features", href: "#features" },
     { label: "How it works", href: "/how-it-works" },
     { label: "About", href: "/about" },
+    { label: "Contact", href: "/contact" },
   ],
   ctaButtonText = "Get started",
   onCtaClick,

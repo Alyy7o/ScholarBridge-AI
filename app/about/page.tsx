@@ -47,7 +47,8 @@ export default function AboutPage() {
         <h2>Contact</h2>
         <p>
           Questions or feedback? Write us at{" "}
-          <a href="mailto:hello@scholarbridge.ai">hello@scholarbridge.ai</a>.
+          <a href="mailto:alijaved.developer@gmail.com">alijaved.developer@gmail.com</a>
+          {" "}or use the <a href="/contact">contact form</a>.
         </p>
       </article>
 

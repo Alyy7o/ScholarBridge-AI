@@ -115,6 +115,7 @@ export default function Landing({ onGetStarted }: { onGetStarted?: () => void })
           { label: "Features", href: "#features" },
           { label: "How it works", href: "/how-it-works" },
           { label: "About", href: "/about" },
+          { label: "Contact", href: "/contact" },
         ]}
       />
 

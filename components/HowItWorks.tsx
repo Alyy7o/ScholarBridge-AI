@@ -48,6 +48,7 @@ export default function HowItWorksPage() {
             How it works
           </Link>
           <Link href="/about">About</Link>
+          <Link href="/contact">Contact</Link>
           <Link href="/?signin=1" className="hiw-cta">
             Get started
           </Link>

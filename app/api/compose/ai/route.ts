@@ -2,7 +2,7 @@ import { requireUser } from "@/lib/supabase";
 import { json, err } from "@/lib/http";
 import { parseProfessors } from "@/lib/parse";
 import { findPapers } from "@/lib/research";
-import { personalize } from "@/lib/personalize";
+import { personalize, isAiEnabled } from "@/lib/personalize";
 import { renderTemplate, DEFAULT_TEMPLATE, DEFAULT_SUBJECT } from "@/lib/template";
 import type { Professor } from "@/lib/types";
 
@@ -74,5 +74,5 @@ export async function POST(req: Request) {
       };
     }),
   );
-  return json({ emails, ai_enabled: !!process.env.OPENROUTER_API_KEY });
+  return json({ emails, ai_enabled: isAiEnabled() });
 }

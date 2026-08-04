@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/supabase";
 import { json, err } from "@/lib/http";
+import { isAiEnabled } from "@/lib/personalize";
 
 export async function GET() {
   const { sb, user } = await requireUser();
@@ -39,7 +40,7 @@ export async function GET() {
       email: profile?.gmail_email || null,
       needs_reconnect: !!profile?.gmail_needs_reconnect,
     },
-    ai_enabled: !!process.env.OPENROUTER_API_KEY,
+    ai_enabled: isAiEnabled(),
     templates: templates || 0,
     professors: professors || 0,
     attachments: attachments || 0,

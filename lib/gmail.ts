@@ -95,13 +95,21 @@ function renderBody(body: string): string {
   return toHtml(body);
 }
 
-function buildMime(to: string, from: string, subject: string, body: string, attachments: OutAttachment[]): string {
+function buildMime(
+  to: string,
+  from: string,
+  subject: string,
+  body: string,
+  attachments: OutAttachment[],
+  replyTo?: string,
+): string {
   const boundary = "sb_" + Math.random().toString(36).slice(2);
   const enc = new TextEncoder();
   const parts: number[] = [];
   const push = (s: string) => enc.encode(s).forEach((b) => parts.push(b));
 
   push(`To: ${to}\r\nFrom: ${from}\r\nSubject: ${asciiClean(subject)}\r\n`);
+  if (replyTo) push(`Reply-To: ${replyTo}\r\n`);
   push(`MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n`);
   push(`--${boundary}\r\nContent-Type: text/html; charset="UTF-8"\r\n\r\n${renderBody(body)}\r\n`);
   for (const a of attachments) {
@@ -120,10 +128,11 @@ export async function sendGmail(
   subject: string,
   body: string,
   attachments: OutAttachment[] = [],
+  replyTo?: string,
 ): Promise<{ ok: boolean; info: string }> {
   const { token, error } = await accessTokenFromRefresh(refreshToken);
   if (!token) return { ok: false, info: error || "Could not refresh Google token" };
-  const raw = buildMime(to, from || "me", subject, body, attachments);
+  const raw = buildMime(to, from || "me", subject, body, attachments, replyTo);
   const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },

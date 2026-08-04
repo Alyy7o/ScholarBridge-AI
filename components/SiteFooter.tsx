@@ -6,6 +6,7 @@ const PRODUCT = [
   { label: "Features", href: "/#features" },
   { label: "How it works", href: "/how-it-works" },
   { label: "About", href: "/about" },
+  { label: "Contact", href: "/contact" },
 ];
 
 const ACCOUNT = [
@@ -16,6 +17,7 @@ const ACCOUNT = [
 const LEGAL = [
   { label: "Privacy", href: "/privacy" },
   { label: "Terms", href: "/terms" },
+  { label: "Contact", href: "/contact" },
 ];
 
 export default function SiteFooter({ onGetStarted }: { onGetStarted?: () => void }) {
@@ -74,7 +76,7 @@ export default function SiteFooter({ onGetStarted }: { onGetStarted?: () => void
               </li>
             ))}
             <li>
-              <a href="mailto:hello@scholarbridge.ai">hello@scholarbridge.ai</a>
+              <a href="mailto:alijaved.developer@gmail.com">alijaved.developer@gmail.com</a>
             </li>
           </ul>
         </div>

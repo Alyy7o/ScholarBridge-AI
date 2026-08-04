@@ -10,6 +10,7 @@ const LINKS = [
   { label: "Features", href: "#features" },
   { label: "How it works", href: "#how" },
   { label: "About", href: "/about" },
+  { label: "Contact", href: "/contact" },
 ];
 
 export default function FloatingNavbar({

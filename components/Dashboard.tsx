@@ -609,7 +609,7 @@ function Compose({ toast, go }: any) {
             <div style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: 12, marginBottom: 12, borderRadius: 10, border: "1px solid var(--bad, #ef4444)", background: "rgba(239,68,68,.08)" }}>
               <span style={{ color: "var(--bad, #ef4444)", flexShrink: 0 }}>⚠</span>
               <div className="tiny">
-                <b>AI writing is OFF.</b> Emails are using the basic offline template, so tone has no effect and wording is generic. Set the <code>OPENROUTER_API_KEY</code> environment variable (and redeploy) to turn on real AI personalization.
+                <b>AI writing is OFF.</b> Emails are using the basic offline template, so tone has no effect and wording is generic. Set at least one of <code>GEMINI_API_KEY</code>, <code>GROQ_API_KEY</code>, or <code>OPENROUTER_API_KEY</code> (and redeploy) to turn on real AI personalization.
               </div>
             </div>
           )}

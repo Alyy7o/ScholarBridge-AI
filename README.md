@@ -6,8 +6,8 @@ AI-personalized professor outreach: research → draft → attach → **schedule
 ```
 Next.js (Vercel)  ──►  API route handlers  ──►  Supabase (Postgres + Auth + Storage)
        UI                 lib/ services              │
-                     Research graph / Semantic Scholar      │ cron (pg_cron every 5 min)
-                     OpenRouter (DeepSeek/Qwen)        ▼
+                     Research graph / Semantic Scholar │ cron (pg_cron every 5 min)
+                     Gemini → Groq → OpenRouter        ▼
                      Gmail REST (send)          Edge Function `process-due` → Gmail
 ```
 
@@ -30,7 +30,7 @@ Dashboard · Compose (AI personalization / ready-doc import / excel-ready) · Pr
 ### 3. Env (`.env.local` for dev, Vercel env for prod)
 See `.env.example`. Key ones:
 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
-`OPENROUTER_API_KEY` (optional), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXT_PUBLIC_SITE_URL`.
+`GEMINI_API_KEY` / `GROQ_API_KEY` / `OPENROUTER_API_KEY` (any one enables AI drafts; tried in that order), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXT_PUBLIC_SITE_URL`.
 
 ### 4. Run locally
 ```bash
