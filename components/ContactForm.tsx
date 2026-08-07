@@ -38,10 +38,12 @@ export default function ContactForm() {
     <div className="ct">
       <div className="ct-copy">
         <p className="eyebrow">Contact</p>
+        <p className="meta">Last updated: August 8, 2026</p>
         <h1>Get in touch</h1>
-        <p className="lead">
-          Questions about ScholarBridge, partnerships, or support — send a note and it goes straight to our
-          inbox.
+        <p className="lead speakable">
+          Questions about ScholarBridge AI, partnerships, press, or support — send a note and it goes straight to
+          our inbox. We help applicants and labs with research-aware professor outreach, the 30,000+ email cache,
+          and sending campaigns from your email.
         </p>
         <ul className="ct-meta">
           <li>
@@ -52,7 +54,32 @@ export default function ContactForm() {
             <span>Response</span>
             <em>Usually within 1–2 business days</em>
           </li>
+          <li>
+            <span>Best for</span>
+            <em>Product questions, partnerships, bug reports, data questions</em>
+          </li>
         </ul>
+        <div className="ct-topics">
+          <h2>What can we help with?</h2>
+          <ul>
+            <li>
+              <strong>Product &amp; onboarding</strong> — how search, buckets, AI drafts, and scheduling work.
+            </li>
+            <li>
+              <strong>Email cache</strong> — coverage across 100+ countries and how open-access mining grows the list.
+            </li>
+            <li>
+              <strong>Partnerships</strong> — universities, labs, or tools that want to collaborate.
+            </li>
+            <li>
+              <strong>Account &amp; sending</strong> — connecting your email and campaign delivery questions.
+            </li>
+          </ul>
+          <p>
+            Prefer self-serve answers first? See the <a href="/faq">FAQ</a> and{" "}
+            <a href="/how-it-works">how it works</a>.
+          </p>
+        </div>
       </div>
 
       <form className="ct-form" onSubmit={submit} noValidate>
@@ -135,7 +162,12 @@ export default function ContactForm() {
           letter-spacing: 0.14em;
           text-transform: uppercase;
           color: var(--acc);
-          margin: 0 0 12px;
+          margin: 0 0 8px;
+        }
+        .meta {
+          font-size: 12px;
+          color: var(--mut);
+          margin: 0 0 14px;
         }
         h1 {
           font-family: "Crimson Pro", Georgia, serif;
@@ -150,7 +182,39 @@ export default function ContactForm() {
           font-size: 16px;
           line-height: 1.6;
           color: var(--mut);
-          max-width: 42ch;
+          max-width: 46ch;
+        }
+        .ct-topics {
+          margin-top: 8px;
+        }
+        .ct-topics h2 {
+          font-family: "Crimson Pro", Georgia, serif;
+          font-size: 20px;
+          font-weight: 700;
+          margin: 0 0 10px;
+          color: var(--ink);
+        }
+        .ct-topics ul {
+          margin: 0 0 14px;
+          padding-left: 1.15em;
+          color: var(--mut);
+          font-size: 14px;
+          line-height: 1.55;
+        }
+        .ct-topics li {
+          margin-bottom: 8px;
+        }
+        .ct-topics strong {
+          color: var(--ink);
+        }
+        .ct-topics p {
+          margin: 0;
+          font-size: 14px;
+          color: var(--mut);
+          line-height: 1.55;
+        }
+        .ct-topics a {
+          color: var(--acc2);
         }
         .ct-meta {
           list-style: none;

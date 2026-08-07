@@ -194,6 +194,28 @@ export default function Landing({ onGetStarted }: { onGetStarted?: () => void })
 
       <VerticalSteps />
 
+      <section className="lp-sec speakable" aria-labelledby="lp-why-title">
+        <h2 id="lp-why-title" className="lp-h2">
+          Why research-aware outreach wins
+        </h2>
+        <p className="lp-sec-sub" style={{ marginBottom: 18 }}>
+          ScholarBridge AI is built so applicants and labs can reach the right faculty without spreadsheet chaos.
+        </p>
+        <div className="lp-prose">
+          <p>
+            Searching department sites one by one is slow. ScholarBridge combines a growing cache of more than 30,000
+            professor emails across 100+ countries with filters for university and field, then drafts messages grounded
+            in each researcher&apos;s recent papers. You edit tone and length, schedule the campaign, and send from
+            your email so replies stay in your inbox.
+          </p>
+          <p>
+            Emails in the cache are mined from open-access papers and public scholarly signals—not private mailboxes.
+            That keeps outreach specific: you spend time writing to labs that match your interests instead of blasting
+            generic templates.
+          </p>
+        </div>
+      </section>
+
       <section className="lp-sec lp-cta-sec">
         <motion.div className="lp-ctacard" {...reveal} transition={{ duration: 0.6, ease }}>
           <div className="lp-ctacard-glow" aria-hidden="true" />
@@ -279,6 +301,16 @@ export default function Landing({ onGetStarted }: { onGetStarted?: () => void })
           color: var(--mut);
           margin: 0 auto 30px;
           max-width: 560px;
+        }
+        .lp-prose {
+          max-width: 720px;
+          margin: 0 auto;
+          color: var(--mut);
+          font-size: 15px;
+          line-height: 1.65;
+        }
+        .lp-prose p {
+          margin: 0 0 14px;
         }
         .lp-scroll-demo {
           position: relative;

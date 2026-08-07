@@ -37,9 +37,11 @@ export default function HowItWorksPage() {
           transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
         >
           <span className="hiw-eyebrow">How it works</span>
-          <h1>From search to sent — in five clear steps</h1>
-          <p>
-            ScholarBridge AI is built for applicants and researchers who need to reach the right labs with personal, research-aware outreach — without drowning in spreadsheets.
+          <h1 className="speakable">From search to sent — in five clear steps</h1>
+          <p className="speakable">
+            ScholarBridge AI is built for applicants and researchers who need to reach the right labs with personal,
+            research-aware outreach — without drowning in spreadsheets. Start from a cache of more than 30,000
+            professor emails across 100+ countries, personalize with recent papers, and send from your email.
           </p>
         </motion.div>
 

@@ -106,7 +106,11 @@ const ResponsiveHeroBanner: React.FC<ResponsiveHeroBannerProps> = ({
 
   return (
     <section className="rhb">
-      <img src={backgroundImageUrl} alt="" className="rhb-bg" />
+      <img
+        src={backgroundImageUrl}
+        alt="Academic research network illustrating ScholarBridge AI professor outreach worldwide"
+        className="rhb-bg"
+      />
       <div className="rhb-tint" aria-hidden />
       <div className="rhb-veil" aria-hidden />
       <div className="rhb-fade" aria-hidden />

@@ -1,46 +1,56 @@
 import MarketingShell from "@/components/MarketingShell";
 import JsonLd from "@/components/JsonLd";
 import { FAQ_ITEMS } from "@/lib/faq";
-import { faqPageSchema } from "@/lib/schema";
+import { breadcrumbSchema, faqPageSchema, speakableSchema } from "@/lib/schema";
 import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "FAQ",
   description:
-    "Answers to common questions about ScholarBridge AI: research-aware professor outreach, sending from your email, finding labs, and support.",
+    "FAQ for ScholarBridge AI: what it is, 30,000+ professor emails across 100+ countries, research-aware drafts, sending from your email, uploads, and support.",
   alternates: { canonical: "/faq" },
   openGraph: {
     title: "FAQ — ScholarBridge AI",
     description:
-      "What is ScholarBridge AI, how research-aware outreach works, sending from your email, and how to get support.",
+      "Answers about ScholarBridge AI, the 30,000+ professor email cache, sending from your email, and support.",
     url: "/faq",
+    images: [{ url: "/og.jpg", width: 1200, height: 630, alt: "ScholarBridge AI" }],
   },
 };
 
 export default function FaqPage() {
   return (
     <MarketingShell activeHref="/faq">
-      <JsonLd data={faqPageSchema()} />
+      <JsonLd
+        data={[
+          faqPageSchema(),
+          breadcrumbSchema([{ name: "FAQ", path: "/faq" }]),
+          speakableSchema([".speakable", "h1", ".lead"], "/faq"),
+        ]}
+      />
       <article className="doc">
         <p className="eyebrow">FAQ</p>
+        <p className="meta">Last updated: August 8, 2026</p>
         <h1>Frequently asked questions</h1>
-        <p className="lead">
-          ScholarBridge AI is a research-aware outreach tool for finding professors and sending personalized
-          email campaigns. Here are direct answers to the questions applicants and labs ask most.
+        <p className="lead speakable">
+          ScholarBridge AI is a research-aware outreach tool for finding professors among more than 30,000 cached
+          emails across 100+ countries, drafting personalized messages, and sending campaigns from your email. Here
+          are direct answers to the questions applicants and labs ask most.
         </p>
 
         {FAQ_ITEMS.map((item) => (
           <section key={item.question}>
             <h2>{item.question}</h2>
-            <p>{item.answer}</p>
+            <p className="speakable">{item.answer}</p>
           </section>
         ))}
 
         <h2>Still need help?</h2>
         <p>
-          Write us at{" "}
-          <a href="mailto:alijaved.developer@gmail.com">alijaved.developer@gmail.com</a> or use the{" "}
+          Read <Link href="/how-it-works">how it works</Link>, learn more <Link href="/about">about us</Link>, or
+          write to{" "}
+          <a href="mailto:alijaved.developer@gmail.com">alijaved.developer@gmail.com</a> / use the{" "}
           <Link href="/contact">contact form</Link>.
         </p>
       </article>
@@ -52,7 +62,12 @@ export default function FaqPage() {
           letter-spacing: 0.14em;
           text-transform: uppercase;
           color: var(--acc);
-          margin: 0 0 12px;
+          margin: 0 0 8px;
+        }
+        .doc .meta {
+          font-size: 12px;
+          color: var(--mut);
+          margin: 0 0 14px;
         }
         .doc h1 {
           font-family: "Crimson Pro", Georgia, serif;
