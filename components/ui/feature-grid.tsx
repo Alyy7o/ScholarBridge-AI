@@ -7,7 +7,7 @@ import { motion } from "motion/react";
 const FEATURES = [
   {
     title: "Find professors worldwide",
-    body: "Search by country, university, and field across a living research graph of labs and scholars.",
+    body: "Search 30,000+ professor emails across 100+ countries by university and field — then add matches to buckets.",
     tag: "Discover",
     span: "wide",
     image: "/brand/features/feature-discover.png",
@@ -50,8 +50,8 @@ const FEATURES = [
 ];
 
 const STATS = [
-  { n: "250M+", l: "research papers indexed" },
-  { n: "< 30s", l: "to a personalized draft" },
+  { n: "30,000+", l: "professor emails available" },
+  { n: "100+", l: "countries covered" },
   { n: "100%", l: "sent from your Gmail" },
 ];
 

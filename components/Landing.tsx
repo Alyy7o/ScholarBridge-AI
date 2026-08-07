@@ -58,7 +58,7 @@ const FEATURES = [
   },
   {
     title: "Email mining",
-    body: "A shared, growing cache of professor emails harvested from open-access papers — searchable by country, university and field.",
+    body: "More than 30,000 professor emails across 100+ countries, harvested from open-access papers — searchable by country, university and field.",
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" {...ic}>
         <path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
@@ -147,11 +147,11 @@ export default function Landing({ onGetStarted }: { onGetStarted?: () => void })
         <ContainerScroll
           titleComponent={
             <>
-              <h2 className="lp-scroll-kicker">Your campaign command center</h2>
+              <h2 className="lp-scroll-kicker">A growing professor email cache</h2>
               <span className="lp-scroll-display">
-                One dashboard.
+                30,000+ emails.
                 <br />
-                Every professor.
+                100+ countries.
               </span>
             </>
           }
@@ -168,19 +168,19 @@ export default function Landing({ onGetStarted }: { onGetStarted?: () => void })
             </div>
             <div className="lp-dash-grid">
               <div className="lp-dash-stat">
-                <strong>128</strong>
-                <em>in buckets</em>
+                <strong>30,000+</strong>
+                <em>professor emails</em>
               </div>
               <div className="lp-dash-stat">
-                <strong>42</strong>
-                <em>scheduled</em>
+                <strong>100+</strong>
+                <em>countries covered</em>
               </div>
               <div className="lp-dash-stat">
-                <strong>19</strong>
-                <em>sent today</em>
+                <strong>Open access</strong>
+                <em>papers mined</em>
               </div>
               <div className="lp-dash-list">
-                {["Prof. Chen — ML systems", "Dr. Okonkwo — genomics", "Prof. Silva — HCI"].map((row) => (
+                {["Search by country, university & field", "Cache grows as papers are mined", "Add matches straight to your buckets"].map((row) => (
                   <div key={row} className="lp-dash-row">
                     <i />
                     {row}
@@ -407,9 +407,10 @@ export default function Landing({ onGetStarted }: { onGetStarted?: () => void })
         }
         .lp-dash-stat strong {
           display: block;
-          font-size: 28px;
+          font-size: clamp(18px, 2.2vw, 26px);
           font-weight: 800;
           color: #22d3ee;
+          line-height: 1.15;
         }
         .lp-dash-stat em {
           font-style: normal;
