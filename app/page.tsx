@@ -1,40 +1,39 @@
-"use client";
-import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { supabaseBrowser } from "@/lib/supabase-browser";
-import Login from "@/components/Login";
+import type { Metadata } from "next";
+import { supabaseServer } from "@/lib/supabase";
 import Dashboard from "@/components/Dashboard";
+import Login from "@/components/Login";
 import Landing from "@/components/Landing";
+import AuthRefresh from "@/components/AuthRefresh";
+import { DEFAULT_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
 
-function HomeInner() {
-  const [ready, setReady] = useState(false);
-  const [authed, setAuthed] = useState(false);
-  const [showLogin, setShowLogin] = useState(false);
-  const search = useSearchParams();
+export const metadata: Metadata = {
+  title: {
+    absolute: `AI Professor Outreach — ${SITE_NAME}`,
+  },
+  description: DEFAULT_DESCRIPTION,
+  alternates: { canonical: "/" },
+  openGraph: {
+    title: `AI Professor Outreach — ${SITE_NAME}`,
+    description: DEFAULT_DESCRIPTION,
+    url: SITE_URL,
+    type: "website",
+  },
+};
 
-  useEffect(() => {
-    if (search.get("signin") === "1") setShowLogin(true);
-  }, [search]);
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: { signin?: string };
+}) {
+  const sb = supabaseServer();
+  const {
+    data: { user },
+  } = await sb.auth.getUser();
 
-  useEffect(() => {
-    const sb = supabaseBrowser();
-    sb.auth.getSession().then(({ data }) => {
-      setAuthed(!!data.session);
-      setReady(true);
-    });
-    const { data: sub } = sb.auth.onAuthStateChange((_e, s) => setAuthed(!!s));
-    return () => sub.subscription.unsubscribe();
-  }, []);
-
-  if (!ready) return null;
-  if (authed) return <Dashboard />;
-  return showLogin ? <Login /> : <Landing onGetStarted={() => setShowLogin(true)} />;
-}
-
-export default function Page() {
   return (
-    <Suspense fallback={null}>
-      <HomeInner />
-    </Suspense>
+    <>
+      <AuthRefresh />
+      {user ? <Dashboard /> : searchParams.signin === "1" ? <Login /> : <Landing />}
+    </>
   );
 }

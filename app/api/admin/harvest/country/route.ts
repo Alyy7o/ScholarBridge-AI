@@ -1,13 +1,13 @@
-import { requireUser, supabaseAdmin } from "@/lib/supabase";
+import { requireAdmin } from "@/lib/roles";
+import { supabaseAdmin } from "@/lib/supabase";
 import { json, err } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
-/** Paginated list of professors with an email for one country. Optional `q`
- *  filters by name / institution / email. */
+/** Paginated list of professors with an email for one country. */
 export async function GET(req: Request) {
-  const { user } = await requireUser();
-  if (!user) return err("Unauthorized", 401);
+  const auth = await requireAdmin();
+  if ("response" in auth) return auth.response;
 
   const url = new URL(req.url);
   const code = (url.searchParams.get("code") || "").toLowerCase().trim();
@@ -28,11 +28,9 @@ export async function GET(req: Request) {
     .select("openalex_id,name,email,institution,field,country,confidence,last_seen_year", { count: "exact" })
     .eq("country", code)
     .not("email", "is", null);
-  // Distinct AND-combined filters (professor name / university / field).
   if (name) query = query.ilike("name", `%${name}%`);
   if (university) query = query.ilike("institution", `%${university}%`);
   if (field) query = query.ilike("field", `%${field}%`);
-  // Optional single combined search box (kept for backwards compatibility).
   if (q) query = query.or(`name.ilike.%${q}%,institution.ilike.%${q}%,email.ilike.%${q}%,field.ilike.%${q}%`);
 
   const { data, count, error } = await query.order("name").range(from, from + pageSize - 1);

@@ -142,6 +142,29 @@ function toHits(arr: any[]): AuthorHit[] {
   });
 }
 
+/** OpenAlex subfield IDs from an author's topic list (short form, e.g. "1702"). */
+function authorSubfieldIds(author: any): string[] {
+  const topics = author?.topics || [];
+  const ids: string[] = [];
+  for (const t of topics) {
+    const sid = String(t?.subfield?.id || "").split("/").pop();
+    if (sid) ids.push(sid);
+  }
+  return ids;
+}
+
+/** Keep authors whose own topics overlap the selected subfield(s). */
+function filterAuthorsBySubfield(authors: any[], subfieldIds: string[]): any[] {
+  if (!subfieldIds.length) return authors;
+  const want = new Set(subfieldIds.map((id) => String(id).split("/").pop()).filter(Boolean));
+  return (authors || []).filter((a) => {
+    const theirs = authorSubfieldIds(a);
+    // No topic data → keep (don't over-filter incomplete profiles)
+    if (!theirs.length) return true;
+    return theirs.some((id) => want.has(id));
+  });
+}
+
 /** Search professors/researchers by country, university and field. */
 export async function searchAuthors(f: SearchFilters): Promise<{ results: AuthorHit[]; total: number; debug: { filter: string; search: string } }> {
   const conceptIds = (f.conceptIds && f.conceptIds.length ? f.conceptIds : f.conceptId ? [f.conceptId] : []).filter(Boolean);
@@ -194,11 +217,18 @@ export async function searchAuthors(f: SearchFilters): Promise<{ results: Author
         ids.push(aid);
         matched[aid] = { institution: hit.display_name || "", country: hit.country_code || "" };
       }
-      if (ids.length >= 40) break;
+      if (ids.length >= 50) break;
     }
     if (!ids.length) return { results: [], total: 0, debug: { filter: wparams.filter, search: wparams.search || "" } };
-    const ad = await oaJson(oaUrl("/authors", { filter: `ids.openalex:${ids.slice(0, 40).join("|")}`, per_page: "40" }));
-    const results = toHits(ad.results || [])
+    const ad = await oaJson(oaUrl("/authors", {
+      filter: `ids.openalex:${ids.slice(0, 50).join("|")}`,
+      per_page: "50",
+      select: "id,display_name,orcid,last_known_institutions,topics,works_count,cited_by_count",
+    }));
+    // Drop faculty whose own topic subfields never overlap the selected area
+    // (e.g. bio primary who only coauthored one AI-tagged paper).
+    const authorRows = filterAuthorsBySubfield(ad.results || [], subfieldIds);
+    const results = toHits(authorRows)
       .map((h) => {
         const m = matched[h.openalex_id];
         return m ? { ...h, institution: m.institution || h.institution, country: m.country || h.country } : h;

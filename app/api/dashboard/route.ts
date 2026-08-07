@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/supabase";
 import { json, err } from "@/lib/http";
 import { isAiEnabled } from "@/lib/personalize";
+import { isAdminRole } from "@/lib/roles";
 
 export async function GET() {
   const { sb, user } = await requireUser();
@@ -15,7 +16,9 @@ export async function GET() {
   ).length;
 
   const { data: profile } = await sb.from("profiles").select("*").eq("id", user.id).maybeSingle();
-  const quota = profile?.daily_quota ?? 500;
+  const quota = profile?.daily_quota ?? 20;
+  const role = isAdminRole(profile?.role, profile?.email || user.email) ? "admin" : "user";
+
   const [{ count: templates }, { count: professors }, { count: attachments }] = await Promise.all([
     sb.from("email_templates").select("*", { count: "exact", head: true }),
     sb.from("professors").select("*", { count: "exact", head: true }),
@@ -41,6 +44,7 @@ export async function GET() {
       needs_reconnect: !!profile?.gmail_needs_reconnect,
     },
     ai_enabled: isAiEnabled(),
+    role,
     templates: templates || 0,
     professors: professors || 0,
     attachments: attachments || 0,

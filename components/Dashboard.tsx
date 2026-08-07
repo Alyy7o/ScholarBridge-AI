@@ -9,6 +9,31 @@ async function api(path: string, opts: RequestInit = {}) {
   if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
   return j;
 }
+
+/** Shared toolbar refresh control used on every dashboard section. */
+function RefreshButton({ onClick, busy }: { onClick: () => void | Promise<void>; busy?: boolean }) {
+  const [spin, setSpin] = useState(false);
+  const run = async () => {
+    setSpin(true);
+    try { await onClick(); } finally { setSpin(false); }
+  };
+  const active = busy || spin;
+  return (
+    <button
+      type="button"
+      className="btn sm sec"
+      title="Refresh"
+      aria-label="Refresh"
+      disabled={active}
+      onClick={run}
+      style={{ display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+    >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: active ? "sbspin .7s linear infinite" : undefined }}>
+        <path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /><path d="M3 21v-5h5" />
+      </svg>
+    </button>
+  );
+}
 const fmt = (iso?: string | null) => {
   if (!iso) return "—";
   try { return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
@@ -187,16 +212,17 @@ const NAV_ICONS: Record<string, React.ReactNode> = {
   templates: I(<><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></>),
   attachments: I(<path d="M21.4 11.05 12.25 20.2a5 5 0 0 1-7.07-7.07l9.19-9.19a3 3 0 0 1 4.24 4.24l-9.2 9.19a1 1 0 0 1-1.41-1.41l8.48-8.49" />),
   history: I(<><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></>),
+  users: I(<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>),
   settings: I(<><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.2.61.78 1.03 1.42 1.03H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></>),
 };
 // Sidebar items (Settings is reachable from the account menu, not the sidebar).
-const SECTIONS: [string, string][] = [
-  ["dashboard", "Dashboard"], ["emails", "Email Mining"], ["find", "Find Professors"], ["professors", "Professors"],
+const SECTIONS_BASE: [string, string][] = [
+  ["dashboard", "Dashboard"], ["emails", "Email Mining"], ["users", "Users"], ["find", "Find Professors"], ["professors", "Professors"],
   ["compose", "Compose"], ["templates", "Templates"], ["attachments", "Attachments"], ["history", "Schedule & History"],
 ];
 // Titles for the navbar (includes settings, which isn't in the sidebar).
 const TITLES: Record<string, string> = {
-  dashboard: "Dashboard", emails: "Email Mining", find: "Find Professors", professors: "Professors",
+  dashboard: "Dashboard", emails: "Email Mining", users: "Users", find: "Find Professors", professors: "Professors",
   compose: "Compose", templates: "Templates", attachments: "Attachments", history: "Schedule & History", settings: "Settings",
 };
 
@@ -205,10 +231,12 @@ export default function Dashboard() {
   const [toast, setToastMsg] = useState<string | null>(null);
   const [foot, setFoot] = useState("");
   const [me, setMe] = useState<{ name: string; email: string }>({ name: "", email: "" });
+  const [role, setRole] = useState<"admin" | "user" | null>(null);
   const [acctOpen, setAcctOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const showToast = useCallback((m: string) => { setToastMsg(m); setTimeout(() => setToastMsg(null), 2200); }, []);
   const signOut = async () => { await supabaseBrowser().auth.signOut(); location.reload(); };
+  const isAdmin = role === "admin";
 
   useEffect(() => {
     supabaseBrowser().auth.getUser().then(({ data }) => {
@@ -217,6 +245,7 @@ export default function Dashboard() {
       const name = (u?.user_metadata?.full_name as string) || email.split("@")[0] || "Account";
       setMe({ name, email });
     });
+    api("/api/dashboard").then((d) => setRole(d.role === "admin" ? "admin" : "user")).catch(() => setRole("user"));
     try {
       const saved = localStorage.getItem("sb_theme");
       if (saved === "light" || saved === "dark") setTheme(saved);
@@ -227,10 +256,23 @@ export default function Dashboard() {
     try { localStorage.setItem("sb_theme", theme); } catch { /* ignore */ }
   }, [theme]);
 
-  const props = { toast: showToast, setFoot, go: setSection };
+  useEffect(() => {
+    if (role === null) return;
+    if (!isAdmin && (section === "emails" || section === "users")) setSection("dashboard");
+  }, [role, isAdmin, section]);
+
+  const sections = useMemo(
+    () => SECTIONS_BASE.filter(([id]) => {
+      if (id === "emails" || id === "users") return isAdmin;
+      return true;
+    }),
+    [isAdmin],
+  );
+
+  const props = { toast: showToast, setFoot, go: setSection, isAdmin };
   const TABS: Record<string, React.FC<any>> = {
     dashboard: DashboardHome, compose: Compose, professors: Professors, find: FindProfessors,
-    templates: Templates, attachments: Attachments, history: History, emails: EmailHarvest, settings: Settings,
+    templates: Templates, attachments: Attachments, history: History, emails: EmailHarvest, users: AdminUsers, settings: Settings,
   };
   // Keep-alive: once a tab is opened, keep it mounted and just toggle its
   // visibility. This preserves each tab's state (search results, in-memory file
@@ -247,7 +289,7 @@ export default function Dashboard() {
       <aside className="side">
         <div className="brand"><div className="logo"><BrandLogo variant="app" size={34} priority /></div><div><b>ScholarBridge</b><span>AI outreach scheduler</span></div></div>
         <nav className="nav">
-          {SECTIONS.map(([id, label]) => (
+          {sections.map(([id, label]) => (
             <button key={id} className={id === section ? "on" : ""} onClick={() => setSection(id)}>
               <span className="nav-ic">{NAV_ICONS[id]}</span> {label}
             </button>
@@ -290,7 +332,7 @@ export default function Dashboard() {
 
         <div style={{ padding: "24px 26px" }}>
           {Object.entries(TABS).map(([id, Comp]) =>
-            visited.has(id) ? (
+            visited.has(id) && ((id !== "emails" && id !== "users") || isAdmin) ? (
               <div key={id} style={{ display: id === section ? "block" : "none" }}>
                 <Comp {...props} />
               </div>
@@ -314,14 +356,22 @@ const DIC = {
   countries: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18Z" /></svg>,
   high: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m9 12 2 2 4-4" /><path d="M12 3 4 6v5c0 5 3.4 7.8 8 10c4.6-2.2 8-5 8-10V6z" /></svg>,
 };
-function DashboardHome({ go }: any) {
+function DashboardHome({ go, toast, isAdmin }: any) {
   const [d, setD] = useState<any>(null);
   const [mine, setMine] = useState<any>(null);
-  useEffect(() => {
-    api("/api/dashboard").then(setD).catch(() => {});
-    api("/api/admin/harvest/stats").then(setMine).catch(() => {});
-  }, []);
+  const load = useCallback(async () => {
+    const dash = await api("/api/dashboard").catch(() => null);
+    if (dash) setD(dash);
+    // Gate on both parent prop and API role so non-admins never see mining stats.
+    const admin = isAdmin && dash?.role === "admin";
+    if (admin) {
+      const m = await api("/api/admin/harvest/stats").catch(() => null);
+      setMine(m);
+    } else setMine(null);
+  }, [isAdmin]);
+  useEffect(() => { load(); }, [load]);
   if (!d) return <Loader page />;
+  const showMining = isAdmin && d.role === "admin" && !!mine;
   const s = d.stats;
   const card = (icon: React.ReactNode, n: number, l: string) => (
     <div className="dash-card" onClick={() => go("history")}>
@@ -339,6 +389,9 @@ function DashboardHome({ go }: any) {
 
   return (
     <>
+      <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
+        <RefreshButton onClick={async () => { await load(); toast?.("Refreshed"); }} />
+      </div>
       {d.gmail?.needs_reconnect && <GmailReconnectBanner />}
       <div className="dash-grid">
         {card(DIC.scheduled, s.scheduled, "Scheduled")}
@@ -360,7 +413,7 @@ function DashboardHome({ go }: any) {
         </div>
       </div>
 
-      {mine && (() => {
+      {showMining && (() => {
         const totalEmails = Number(mine.total || 0);
         const totalPapers = (mine.countries || []).reduce((a: number, c: any) => a + Number(c.papers || 0), 0);
         const countriesCovered = (mine.countries || []).filter((c: any) => Number(c.cached) > 0).length;
@@ -628,10 +681,7 @@ function Compose({ toast, go }: any) {
             Rows without a valid email (containing <code>@</code>) are skipped. Or skip the file and use your saved professors.
           </Tips>
           <div className="row" style={{ justifyContent: "flex-end", marginBottom: 8 }}>
-            <button className="btn sm sec" onClick={() => { loadLists(); toast("Lists refreshed"); }} title="Reload templates, buckets, professors and attachments" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /><path d="M3 21v-5h5" /></svg>
-              Refresh
-            </button>
+            <RefreshButton onClick={async () => { loadLists(); toast("Lists refreshed"); }} />
           </div>
           <div className="grid g2">
             <div>
@@ -1068,37 +1118,79 @@ function EditBucketModal({ bucket, professors, onClose, onDone, toast }: any) {
   );
 }
 
-// Filter icon → dropdown of bucket checkboxes (default: all on). selB === null means "all".
-function BucketFilter({ buckets, selB, setSelB, allKeys }: any) {
-  const [open, setOpen] = useState(false);
-  const isAll = !selB || allKeys.every((k: string) => selB.has(k));
-  const toggle = (k: string) => setSelB(() => { const s = new Set<string>(selB ? selB : allKeys); if (s.has(k)) s.delete(k); else s.add(k); return s; });
+/** Create a new bucket and optionally assign professors via checklist. */
+function CreateBucketModal({ professors, initialIds, onClose, onDone, toast }: any) {
+  const [name, setName] = useState("");
+  const [checked, setChecked] = useState<Set<string>>(() => new Set(initialIds || []));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const toggle = (id: string) =>
+    setChecked((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  const submit = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) { setError("Bucket name required"); return; }
+    setBusy(true); setError("");
+    try {
+      const bucket = await api("/api/buckets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (checked.size) {
+        await api(`/api/buckets/${bucket.id}/members`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ professor_ids: [...checked] }),
+        });
+      }
+      toast(checked.size ? `Bucket created · ${checked.size} added` : "Bucket created");
+      onDone(bucket.id);
+    } catch (e) {
+      setError((e as Error)?.message || "Failed");
+      setBusy(false);
+    }
+  };
+
   return (
-    <div style={{ position: "relative" }}>
-      <button className="btn sm sec" onClick={() => setOpen((o) => !o)} style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></svg>
-        Filter{isAll ? "" : ` (${selB.size})`}
-      </button>
-      {open && (
-        <>
-          <button type="button" aria-hidden className="tpf-backdrop" onClick={() => setOpen(false)} />
-          <div style={{ position: "absolute", right: 0, top: "100%", marginTop: 4, zIndex: 30, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, minWidth: 220, maxHeight: 320, overflow: "auto", boxShadow: "0 12px 30px rgba(0,0,0,.4)", padding: 8 }}>
-            <div className="row" style={{ gap: 6, marginBottom: 6 }}>
-              <button className="btn sm sec" style={{ padding: "3px 9px", fontSize: 11 }} onClick={() => setSelB(new Set(allKeys))}>All</button>
-              <button className="btn sm sec" style={{ padding: "3px 9px", fontSize: 11 }} onClick={() => setSelB(new Set())}>None</button>
-            </div>
-            {buckets.map((b: any) => (
-              <label key={b.id} className="chk" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "5px 4px", fontSize: 13 }}>
-                <input type="checkbox" checked={isAll || selB.has(b.id)} onChange={() => toggle(b.id)} /> {b.name} ({b.count})
-              </label>
-            ))}
-            <label className="chk" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "5px 4px", fontSize: 13 }}>
-              <input type="checkbox" checked={isAll || selB.has("__none__")} onChange={() => toggle("__none__")} /> Ungrouped
+    <ModalShell
+      onClose={onClose}
+      maxWidth={520}
+      title="New bucket"
+      bodyStyle={{ overflow: "hidden", display: "flex", flexDirection: "column", gap: 0 }}
+    >
+      <label style={{ marginTop: 12, flexShrink: 0 }}>Name</label>
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Japan ML labs" style={{ width: "100%", flexShrink: 0 }} autoFocus />
+      <label style={{ marginTop: 14, flexShrink: 0 }}>Add professors</label>
+      <div className="mut tiny" style={{ marginBottom: 8, flexShrink: 0 }}>Optional — check professors to put in this bucket.</div>
+      <div style={{ flex: "1 1 auto", minHeight: 120, maxHeight: "min(48vh, 380px)", overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 10px" }}>
+        {(professors || []).length === 0 ? (
+          <div className="mut tiny">No saved professors yet. You can still create an empty bucket.</div>
+        ) : (
+          (professors || []).map((p: any) => (
+            <label key={p.id} className="chk" style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer", padding: "6px 2px", fontSize: 13 }}>
+              <input type="checkbox" checked={checked.has(p.id)} onChange={() => toggle(p.id)} style={{ marginTop: 3 }} />
+              <span>
+                <b>{p.name || p.email}</b>
+                <div className="mut tiny">{p.email}{p.university ? ` · ${p.university}` : ""}</div>
+              </span>
             </label>
-          </div>
-        </>
-      )}
-    </div>
+          ))
+        )}
+      </div>
+      <div className="mut tiny" style={{ marginTop: 8, flexShrink: 0 }}>{checked.size} selected</div>
+      {error && <div className="tiny" style={{ color: "var(--bad)", marginTop: 10, flexShrink: 0 }}>{error}</div>}
+      <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 16, flexShrink: 0 }}>
+        <button className="btn sm sec" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className="btn sm" onClick={submit} disabled={busy}>{busy ? "Creating…" : "Create bucket"}</button>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -1107,25 +1199,29 @@ function Professors({ toast }: any) {
   const [buckets, setBuckets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<Set<string>>(new Set());
-  const [selB, setSelB] = useState<Set<string> | null>(null); // null = all buckets shown
+  const [bucketView, setBucketView] = useState("__all__"); // __all__ | bucket id | __none__
   const [modal, setModal] = useState<any>(null); // {type:"add"|"edit"|"upload"|"assign"|"confirm", ...}
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const trunc = (s: string, n = 48) => (s && s.length > n ? s.slice(0, n).trimEnd() + "…" : (s || ""));
   const bucketName = (id: string) => buckets.find((b) => b.id === id)?.name || "";
+  const activeBucket = buckets.find((b) => b.id === bucketView) || null;
   const load = () => {
     api("/api/professors").then((x) => { setList(x); setLoading(false); setSel(new Set()); });
-    api("/api/buckets").then(setBuckets).catch(() => {});
+    api("/api/buckets").then((bs) => {
+      setBuckets(bs);
+      setBucketView((v) => (v === "__all__" || v === "__none__" || bs.some((b: any) => b.id === v) ? v : "__all__"));
+    }).catch(() => {});
   };
   useEffect(() => { load(); }, []);
 
-  const allKeys = useMemo(() => [...buckets.map((b) => b.id), "__none__"], [buckets]);
-  const isAll = !selB || allKeys.every((k) => selB!.has(k));
-  const shown = useMemo(() => (isAll ? list : list.filter((p) => {
-    const ids = p.bucket_ids || [];
-    return ids.length ? ids.some((id: string) => selB!.has(id)) : selB!.has("__none__");
-  })), [list, selB, isAll]);
-  useEffect(() => { setPage(1); }, [selB]);
+  const isAll = bucketView === "__all__";
+  const shown = useMemo(() => {
+    if (isAll) return list;
+    if (bucketView === "__none__") return list.filter((p) => !(p.bucket_ids || []).length);
+    return list.filter((p) => (p.bucket_ids || []).includes(bucketView));
+  }, [list, bucketView, isAll]);
+  useEffect(() => { setPage(1); }, [bucketView]);
   const pageCount = Math.max(1, Math.ceil(shown.length / pageSize));
   const pageC = Math.min(page, pageCount);
   const paged = shown.slice((pageC - 1) * pageSize, pageC * pageSize);
@@ -1141,36 +1237,58 @@ function Professors({ toast }: any) {
   const delBucket = async (id: string) => {
     if (!confirm(`Delete bucket "${bucketName(id)}"? Professors stay; only the grouping is removed.`)) return;
     await api("/api/buckets/" + id, { method: "DELETE" });
+    setBucketView("__all__");
     load();
   };
   const closeAndReload = () => { setModal(null); load(); };
+  const openCreateBucket = () => setModal({ type: "createBucket", ids: [...sel] });
+  const afterCreateBucket = (id?: string) => {
+    setModal(null);
+    if (id) setBucketView(id);
+    load();
+  };
 
   return (
     <>
       <p className="lead">Add professors manually or from a spreadsheet, and sort them into buckets you can target when composing.</p>
 
-      <div className="row" style={{ gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+      <div className="row" style={{ gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
         <button className="btn sm" onClick={() => setModal({ type: "add" })}>＋ Add professor</button>
-        <button className="btn sm sec" onClick={() => setModal({ type: "upload" })}>⭱ Upload file</button>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+        <button className="btn sm sec" onClick={() => setModal({ type: "upload" })}>Upload file</button>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <label className="mut tiny" htmlFor="prof-buckets" style={{ margin: 0 }}>Buckets</label>
+          <select
+            id="prof-buckets"
+            className="pagesize"
+            value={bucketView}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === "__new__") { openCreateBucket(); return; }
+              setBucketView(v);
+            }}
+            style={{ minWidth: 160 }}
+            aria-label="Filter by bucket"
+          >
+            <option value="__all__">All ({list.length})</option>
+            {buckets.map((b) => (
+              <option key={b.id} value={b.id}>{b.name} ({b.count})</option>
+            ))}
+            <option value="__none__">Ungrouped</option>
+            <option value="__new__">＋ New bucket…</option>
+          </select>
+          <button className="btn sm sec" title="Create a new bucket" onClick={openCreateBucket}>＋ Bucket</button>
+          {activeBucket && (
+            <>
+              <button className="btn sm sec" title="Edit bucket" onClick={() => setModal({ type: "editBucket", bucket: activeBucket })}>Edit</button>
+              <button className="btn sm danger" title="Delete bucket" onClick={() => delBucket(activeBucket.id)}>Delete</button>
+            </>
+          )}
+          <RefreshButton onClick={async () => { load(); toast("Refreshed"); }} />
           <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} className="pagesize" aria-label="Results per page">
             {[20, 50, 100, 200, 500, 1000].map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
-          {buckets.length > 0 && <BucketFilter buckets={buckets} selB={selB} setSelB={setSelB} allKeys={allKeys} />}
         </div>
       </div>
-
-      {buckets.length > 0 && (
-        <div className="row" style={{ gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-          {buckets.map((b) => (
-            <span key={b.id} className="pill draft" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              {b.name} ({b.count})
-              <button className="chip-x" title="Edit bucket" onClick={() => setModal({ type: "editBucket", bucket: b })} style={{ lineHeight: 1, fontSize: 11 }}>✎</button>
-              <button className="chip-x" title="Delete bucket" onClick={() => delBucket(b.id)} style={{ lineHeight: 1 }}>×</button>
-            </span>
-          ))}
-        </div>
-      )}
 
       {sel.size > 0 && (
         <div className="card" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -1203,13 +1321,14 @@ function Professors({ toast }: any) {
             <button className="btn sm sec" disabled={pageC >= pageCount} onClick={() => setPage(pageC + 1)}>Next &rarr;</button>
           </div>
         )}
-        </>) : <div className="mut">{isAll ? "No professors yet." : "No professors in the selected buckets."}</div>}</div>
+        </>) : <div className="mut">{isAll ? "No professors yet." : "No professors in this bucket."}</div>}</div>
 
       {modal?.type === "add" && <ProfessorFormModal buckets={buckets} onClose={() => setModal(null)} onSaved={closeAndReload} toast={toast} />}
       {modal?.type === "edit" && <ProfessorFormModal initial={modal.prof} buckets={buckets} onClose={() => setModal(null)} onSaved={closeAndReload} toast={toast} />}
       {modal?.type === "upload" && <UploadModal buckets={buckets} onClose={() => setModal(null)} onDone={closeAndReload} toast={toast} />}
       {modal?.type === "assign" && <BucketAssignModal buckets={buckets} ids={modal.ids} onClose={() => setModal(null)} onDone={closeAndReload} toast={toast} />}
       {modal?.type === "editBucket" && <EditBucketModal bucket={modal.bucket} professors={list} onClose={() => setModal(null)} onDone={closeAndReload} toast={toast} />}
+      {modal?.type === "createBucket" && <CreateBucketModal professors={list} initialIds={modal.ids} onClose={() => setModal(null)} onDone={afterCreateBucket} toast={toast} />}
       {modal?.type === "confirm" && <ConfirmModal title="Delete professor?" message={`Remove ${modal.prof.name || modal.prof.email} from your list? This can't be undone.`} onConfirm={async () => { await del(modal.prof.id); setModal(null); }} onClose={() => setModal(null)} />}
       {modal?.type === "confirmBulk" && <ConfirmModal title={`Delete ${sel.size} professors?`} message="Remove all selected professors from your list? This can't be undone." onConfirm={async () => { await bulkDelete(); setModal(null); }} onClose={() => setModal(null)} />}
     </>
@@ -1228,6 +1347,9 @@ function Templates({ toast }: any) {
   const del = async (id: string) => { await api("/api/templates/" + id, { method: "DELETE" }); load(); };
   return (
     <>
+      <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
+        <RefreshButton onClick={async () => { await load(); toast("Refreshed"); }} />
+      </div>
       <div className="card">
         <div onClick={() => setVarsOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
           <b>Template variables</b>
@@ -1266,7 +1388,7 @@ function Templates({ toast }: any) {
 }
 
 /* ---------- Attachments ---------- */
-function Attachments() {
+function Attachments({ toast }: any) {
   const [list, setList] = useState<any[]>([]);
   const [kind, setKind] = useState("cv"); const [file, setFile] = useState<File | null>(null); const [st, setSt] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1276,7 +1398,10 @@ function Attachments() {
   const del = async (id: string) => { await api("/api/attachments/" + id, { method: "DELETE" }); load(); };
   return (
     <>
-      <p className="lead">Upload your CV, SOP or research proposal — attach them when scheduling.</p>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
+        <p className="lead" style={{ margin: 0 }}>Upload your CV, SOP or research proposal — attach them when scheduling.</p>
+        <RefreshButton onClick={async () => { await load(); toast?.("Refreshed"); }} />
+      </div>
       <div className="card">
         <label>Type</label>
         <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ maxWidth: 220 }}><option value="cv">CV</option><option value="sop">SOP</option><option value="proposal">Research proposal</option><option value="other">Other</option></select>
@@ -1373,20 +1498,46 @@ function History({ toast }: any) {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [reList, setReList] = useState<any[] | null>(null);
+  const [view, setView] = useState<"list" | "calendar">("list");
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  const [dayKey, setDayKey] = useState<string | null>(null);
+  const [confirmProc, setConfirmProc] = useState(false);
   const PER = 20;
   const load = useCallback(() => api("/api/emails?status=" + f).then((x) => { setList(x); setLoading(false); setSel(new Set()); }), [f]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [f, query]);
-  const refresh = async () => { setRefreshing(true); try { await load(); } finally { setRefreshing(false); } };
+  const refresh = async () => { setRefreshing(true); try { await load(); toast("Refreshed"); } finally { setRefreshing(false); } };
   const act = async (id: string, a: string) => { await api(`/api/emails/${id}/${a}`, { method: "POST" }); toast(a); load(); };
   const del = async (id: string) => { await api("/api/emails/" + id, { method: "DELETE" }); load(); };
-  const allAct = async (a: string) => { if (!confirm(`${a === "pause" ? "Pause" : "Resume"} ALL emails?`)) return; const r = await api(`/api/schedule/${a}-all`, { method: "POST" }); toast(`${a}: ${r.updated}`); load(); };
-  const proc = async () => { if (!confirm("Process all due emails now? This sends every email whose scheduled time has passed.")) return; const r = await api("/api/process-due", { method: "POST" }); toast(`Processed ${r.processed} · sent ${r.sent}`); load(); };
+  const proc = async () => {
+    const r = await api("/api/process-due", { method: "POST" });
+    toast(`Processed ${r.processed} · sent ${r.sent}`);
+    setConfirmProc(false);
+    load();
+  };
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return list;
     return list.filter((e) => `${e.professor_name || ""} ${e.email || ""} ${e.subject || ""}`.toLowerCase().includes(q));
   }, [list, query]);
+
+  const countsByDay = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const e of filtered) {
+      if (!e.send_at) continue;
+      const d = new Date(e.send_at);
+      const k = isoDay(d);
+      m[k] = (m[k] || 0) + 1;
+    }
+    return m;
+  }, [filtered]);
+
+  const dayEmails = useMemo(() => {
+    if (!dayKey) return [];
+    return filtered.filter((e) => e.send_at && isoDay(new Date(e.send_at)) === dayKey)
+      .sort((a, b) => new Date(a.send_at).getTime() - new Date(b.send_at).getTime());
+  }, [filtered, dayKey]);
+
   const pageCount = Math.max(1, Math.ceil(filtered.length / PER));
   const pageC = Math.min(page, pageCount);
   const paged = filtered.slice((pageC - 1) * PER, pageC * PER);
@@ -1402,19 +1553,38 @@ function History({ toast }: any) {
     toast(`${a}: ${ids.length}`); setSel(new Set()); load();
   };
   const allChecked = paged.length > 0 && paged.every((e) => sel.has(e.id));
+
+  const emailMenuItems = (e: any) => {
+    const items: Array<{ label: string; onClick: () => void; danger?: boolean }> = [];
+    if (e.status === "scheduled") items.push({ label: "Pause", onClick: () => act(e.id, "pause") });
+    if (e.status === "paused") items.push({ label: "Resume", onClick: () => act(e.id, "resume") });
+    if (["scheduled", "paused", "draft"].includes(e.status)) items.push({ label: "Send now", onClick: () => act(e.id, "send-now") });
+    if (["scheduled", "paused"].includes(e.status)) items.push({ label: "Cancel", onClick: () => act(e.id, "cancel") });
+    if (["cancelled", "failed"].includes(e.status)) items.push({ label: "Reschedule", onClick: () => setReList([e]) });
+    items.push({ label: "Delete", onClick: () => del(e.id), danger: true });
+    return items;
+  };
+
+  const cy = calMonth.getFullYear(), cm = calMonth.getMonth();
+  const firstDow = new Date(cy, cm, 1).getDay();
+  const daysInMonth = new Date(cy, cm + 1, 0).getDate();
+  const cells: Array<number | null> = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
   return (
     <>
       <p className="lead">Every drafted, scheduled, sent and failed email — with full control.</p>
-      <div className="row" style={{ marginBottom: 16, gap: 8 }}>
-        <button className="btn sm sec" onClick={() => allAct("pause")}>Pause all</button>
-        <button className="btn sm sec" onClick={() => allAct("resume")}>Resume all</button>
-        <button className="btn sm" onClick={proc}>Process due now</button>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search recipient or subject" style={{ maxWidth: 220, height: 34, padding: "7px 12px" }} />
-          <button className="btn sm sec" title="Refresh" aria-label="Refresh" onClick={refresh} style={{ display: "inline-flex", alignItems: "center", padding: "7px 10px" }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: refreshing ? "sbspin .7s linear infinite" : undefined }}><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /><path d="M3 21v-5h5" /></svg>
-          </button>
-          <div style={{ position: "relative" }}>
+      <div className="row" style={{ marginBottom: 16, gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+          <button className="btn sm" onClick={() => setConfirmProc(true)}>Process due now</button>
+          <div style={{ display: "inline-flex", border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+            <button type="button" className={"btn sm " + (view === "list" ? "" : "sec")} style={{ borderRadius: 0, border: "none" }} onClick={() => setView("list")}>List</button>
+            <button type="button" className={"btn sm " + (view === "calendar" ? "" : "sec")} style={{ borderRadius: 0, border: "none" }} onClick={() => setView("calendar")}>Calendar</button>
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "nowrap", flexShrink: 0 }}>
+          <div style={{ position: "relative", flexShrink: 0 }}>
             <button className="btn sm sec" style={{ display: "inline-flex", alignItems: "center", gap: 7 }} onClick={() => setFilterOpen((o) => !o)}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></svg>
               <span style={{ textTransform: "capitalize" }}>{f}</span>
@@ -1430,9 +1600,21 @@ function History({ toast }: any) {
               </>
             )}
           </div>
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search recipient or subject" style={{ width: 220, maxWidth: 220, height: 34, padding: "7px 12px", flexShrink: 0 }} />
+          <RefreshButton onClick={refresh} busy={refreshing} />
         </div>
       </div>
-      {sel.size > 0 && (
+      {confirmProc && (
+        <ConfirmModal
+          title="Process due emails?"
+          message="This sends every email whose scheduled time has already passed. Continue?"
+          confirmLabel="Process now"
+          danger={false}
+          onConfirm={proc}
+          onClose={() => setConfirmProc(false)}
+        />
+      )}
+      {sel.size > 0 && view === "list" && (
         <div className="card" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: 12 }}>
           <b>{sel.size} selected</b>
           <button className="btn sm sec" onClick={() => bulk("pause")}>Pause</button>
@@ -1444,27 +1626,68 @@ function History({ toast }: any) {
           <button className="btn sm sec" onClick={() => setSel(new Set())}>Clear</button>
         </div>
       )}
+
+      {view === "calendar" ? (
+        <>
+          <div className="card">
+            <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
+              <button type="button" className="btn sm sec" onClick={() => setCalMonth(new Date(cy, cm - 1, 1))}>‹</button>
+              <b>{calMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</b>
+              <button type="button" className="btn sm sec" onClick={() => setCalMonth(new Date(cy, cm + 1, 1))}>›</button>
+            </div>
+            {loading ? <Loader /> : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+                {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
+                  <div key={d} className="mut tiny" style={{ textAlign: "center", fontWeight: 800 }}>{d}</div>
+                ))}
+                {cells.map((d, i) => {
+                  if (d === null) return <div key={`e${i}`} />;
+                  const k = `${cy}-${String(cm + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+                  const n = countsByDay[k] || 0;
+                  const on = dayKey === k;
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setDayKey(k)}
+                      style={{
+                        minHeight: 64, borderRadius: 10, border: on ? "1px solid var(--acc)" : "1px solid var(--line)",
+                        background: on ? "rgba(34,211,238,.12)" : "var(--field)", color: "var(--ink)",
+                        cursor: "pointer", padding: "8px 6px", textAlign: "left",
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: 13 }}>{d}</div>
+                      {n > 0 && <div className="tiny" style={{ marginTop: 6, color: "var(--acc)", fontWeight: 800 }}>{n} email{n === 1 ? "" : "s"}</div>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          {dayKey && (
+            <DayEmailsModal
+              dayKey={dayKey}
+              emails={dayEmails}
+              emailMenuItems={emailMenuItems}
+              onClose={() => setDayKey(null)}
+            />
+          )}
+        </>
+      ) : (
       <div className="card">{loading ? <Loader /> : filtered.length ? (
         <>
         <table><thead><tr><th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th><th style={{ width: 44 }}>#</th><th>When</th><th>Recipient</th><th>Subject</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-          {paged.map((e, i) => {
-            const items: Array<{ label: string; onClick: () => void; danger?: boolean }> = [];
-            if (e.status === "scheduled") items.push({ label: "Pause", onClick: () => act(e.id, "pause") });
-            if (e.status === "paused") items.push({ label: "Resume", onClick: () => act(e.id, "resume") });
-            if (["scheduled", "paused", "draft"].includes(e.status)) items.push({ label: "Send now", onClick: () => act(e.id, "send-now") });
-            if (["scheduled", "paused"].includes(e.status)) items.push({ label: "Cancel", onClick: () => act(e.id, "cancel") });
-            if (["cancelled", "failed"].includes(e.status)) items.push({ label: "Reschedule", onClick: () => setReList([e]) });
-            items.push({ label: "Delete", onClick: () => del(e.id), danger: true });
-            return (<tr key={e.id}>
+          {paged.map((e, i) => (
+            <tr key={e.id}>
               <td><input type="checkbox" checked={sel.has(e.id)} onChange={() => toggle(e.id)} aria-label="Select email" /></td>
               <td className="mut">{(pageC - 1) * PER + i + 1}</td>
               <td className="mut">{fmt(e.send_at)}</td>
               <td><b>{e.professor_name || e.email}</b><div className="mut tiny">{e.email}</div></td>
               <td>{e.subject}{e.error && <div className="tiny" style={{ color: "var(--bad)" }}>{e.error}</div>}</td>
               <td><span className={`pill ${e.status}`}>{e.status}</span></td>
-              <td><RowMenu items={items} /></td>
-            </tr>);
-          })}
+              <td><RowMenu items={emailMenuItems(e)} /></td>
+            </tr>
+          ))}
         </tbody></table>
         {pageCount > 1 && (
           <div className="row" style={{ justifyContent: "center", marginTop: 14, gap: 10 }}>
@@ -1475,8 +1698,64 @@ function History({ toast }: any) {
         )}
         </>
       ) : <div className="mut">{query ? "No emails match your search." : "Nothing here."}</div>}</div>
+      )}
       {reList && <RescheduleModal emails={reList} onClose={() => setReList(null)} onDone={() => { setReList(null); toast("rescheduled"); load(); }} />}
     </>
+  );
+}
+
+function DayEmailsModal({
+  dayKey,
+  emails,
+  emailMenuItems,
+  onClose,
+}: {
+  dayKey: string;
+  emails: any[];
+  emailMenuItems: (e: any) => Array<{ label: string; onClick: () => void; danger?: boolean }>;
+  onClose: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const shown = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return emails;
+    return emails.filter((e) => `${e.professor_name || ""} ${e.email || ""} ${e.subject || ""}`.toLowerCase().includes(s));
+  }, [emails, q]);
+  const title = new Date(dayKey + "T12:00:00").toLocaleDateString(undefined, {
+    weekday: "long", month: "short", day: "numeric", year: "numeric",
+  });
+  return (
+    <ModalShell onClose={onClose} maxWidth={780} title={`${title} · ${emails.length} email(s)`} bodyStyle={{ overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search recipient or subject"
+        style={{ width: "100%", marginTop: 12, marginBottom: 10, flexShrink: 0 }}
+      />
+      <div style={{ flex: "1 1 auto", minHeight: 120, maxHeight: "min(55vh, 420px)", overflow: "auto" }}>
+        {shown.length === 0 ? (
+          <div className="mut">{q ? "No emails match your search." : "No emails on this day."}</div>
+        ) : (
+          <table>
+            <thead><tr><th>When</th><th>Recipient</th><th>Subject</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+              {shown.map((e) => (
+                <tr key={e.id}>
+                  <td className="mut">{fmt(e.send_at)}</td>
+                  <td><b>{e.professor_name || e.email}</b><div className="mut tiny">{e.email}</div></td>
+                  <td>{e.subject}{e.error && <div className="tiny" style={{ color: "var(--bad)" }}>{e.error}</div>}</td>
+                  <td><span className={`pill ${e.status}`}>{e.status}</span></td>
+                  <td><RowMenu items={emailMenuItems(e)} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 12, flexShrink: 0 }}>
+        <button className="btn sm sec" onClick={onClose}>Close</button>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -1720,7 +1999,10 @@ function FindProfessors({ toast }: any) {
 
   return (
     <>
-      <p className="lead">Search researchers by country, university and field, then add them to your list. Emails are pulled from their published papers where available.</p>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+        <p className="lead" style={{ margin: 0 }}>Search researchers by country, university and field, then add them to your list. Emails are pulled from their published papers where available.</p>
+        <RefreshButton onClick={async () => { api("/api/buckets").then(setBuckets).catch(() => {}); toast("Refreshed"); }} />
+      </div>
       <div className="card">
         <div className="grid g2">
           <div><label>Country</label><select value={country} onChange={(e) => setCountry(e.target.value)}>{COUNTRIES.map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></div>
@@ -1902,6 +2184,7 @@ function EmailHarvest({ toast }: any) {
       <div className="card" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <Toggle checked={!!d.active} onChange={toggle} label={d.active ? "Background crawl on" : "Background crawl off"} />
         <button className="btn sm sec" disabled={busy} onClick={runOne}>{busy ? "Running…" : "Run one batch now"}</button>
+        <RefreshButton onClick={async () => { await load(); toast("Refreshed"); }} />
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search country…" style={{ marginLeft: "auto", maxWidth: 240, height: 38, padding: "8px 12px" }} />
       </div>
 
@@ -2062,7 +2345,7 @@ function CountryDetail({ code, name, onBack, toast }: any) {
 /* ---------- Settings ---------- */
 function Settings({ toast }: any) {
   const [d, setD] = useState<any>(null);
-  const [quota, setQuota] = useState(500);
+  const [quota, setQuota] = useState(20);
   const [name, setName] = useState("");
   const [aiBackground, setAiBackground] = useState("");
   const [university, setUniversity] = useState("");
@@ -2072,6 +2355,7 @@ function Settings({ toast }: any) {
   const [linkedin, setLinkedin] = useState("");
   const [targetIntake, setTargetIntake] = useState("");
   const [saving, setSaving] = useState(false);
+  const isAdmin = d?.role === "admin";
 
   const load = () =>
     api("/api/dashboard").then((x) => {
@@ -2091,20 +2375,21 @@ function Settings({ toast }: any) {
   const save = async () => {
     setSaving(true);
     try {
+      const body: Record<string, unknown> = {
+        sender_name: name,
+        ai_background: aiBackground,
+        university,
+        cgpa,
+        work_blurb: workBlurb,
+        phone,
+        linkedin_url: linkedin,
+        target_intake: targetIntake,
+      };
+      if (isAdmin) body.daily_quota = quota;
       await api("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          daily_quota: quota,
-          sender_name: name,
-          ai_background: aiBackground,
-          university,
-          cgpa,
-          work_blurb: workBlurb,
-          phone,
-          linkedin_url: linkedin,
-          target_intake: targetIntake,
-        }),
+        body: JSON.stringify(body),
       });
       toast("Saved");
       load();
@@ -2118,7 +2403,10 @@ function Settings({ toast }: any) {
   if (!d) return <Loader page />;
   return (
     <>
-      <p className="lead">Gmail connection, sender identity, AI email context, and sending quota.</p>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
+        <p className="lead" style={{ margin: 0 }}>Gmail connection, sender identity, and AI email context.</p>
+        <RefreshButton onClick={async () => { await load(); toast("Refreshed"); }} />
+      </div>
       <div className="card"><div className="row" style={{ justifyContent: "space-between" }}>
         <div><b>Gmail</b><div className="mut">{d.gmail.needs_reconnect ? "Connection expired — reconnect to resume sending" : d.gmail.connected ? `Connected as ${d.gmail.email || "—"}` : "Not connected — sends run in dry-run mode"}</div></div>
         <span className={`pill ${d.gmail.needs_reconnect ? "off" : d.gmail.connected ? "on" : "off"}`}>{d.gmail.needs_reconnect ? "EXPIRED" : d.gmail.connected ? "CONNECTED" : "DRY-RUN"}</span></div>
@@ -2148,21 +2436,9 @@ function Settings({ toast }: any) {
         </div>
         <label style={{ marginTop: 12 }}>AI research background</label>
         <div className="mut tiny" style={{ marginBottom: 6 }}>One or two sentences the AI weaves into every personalized paragraph (paper title, your role, venue).</div>
-        <textarea
-          value={aiBackground}
-          onChange={(e) => setAiBackground(e.target.value)}
-          rows={4}
-          placeholder='As co-author of "NeuroClip: …" (submitted to FIT 2026), I worked on …'
-          style={{ width: "100%", maxWidth: 640, resize: "vertical" }}
-        />
+        <textarea value={aiBackground} onChange={(e) => setAiBackground(e.target.value)} rows={4} placeholder='As co-author of "NeuroClip: …" (submitted to FIT 2026), I worked on …' style={{ width: "100%", maxWidth: 640, resize: "vertical" }} />
         <label style={{ marginTop: 12 }}>Work / experience blurb (fills {"{{work_blurb}}"})</label>
-        <textarea
-          value={workBlurb}
-          onChange={(e) => setWorkBlurb(e.target.value)}
-          rows={2}
-          placeholder="I have over two years of experience in software and AI development as a Full Stack Developer at Xylator AI."
-          style={{ width: "100%", maxWidth: 640, resize: "vertical" }}
-        />
+        <textarea value={workBlurb} onChange={(e) => setWorkBlurb(e.target.value)} rows={2} placeholder="I have over two years of experience in software and AI development as a Full Stack Developer at Xylator AI." style={{ width: "100%", maxWidth: 640, resize: "vertical" }} />
         <div className="row" style={{ gap: 12, flexWrap: "wrap", marginTop: 12 }}>
           <div style={{ flex: "1 1 200px", maxWidth: 280 }}>
             <label>Phone (fills {"{{phone}}"})</label>
@@ -2173,17 +2449,112 @@ function Settings({ toast }: any) {
             <input value={linkedin} onChange={(e) => setLinkedin(e.target.value)} style={{ width: "100%" }} />
           </div>
         </div>
+        <div className="row" style={{ marginTop: 14 }}>
+          <button className="btn sm" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save profile"}</button>
+        </div>
       </div>
 
       <div className="card">
-        <label>Daily sending quota</label>
-        <div className="row" style={{ gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <input type="number" value={quota} onChange={(e) => setQuota(parseInt(e.target.value) || 500)} style={{ maxWidth: 160 }} />
-          <button className="btn sm" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save all settings"}</button>
-        </div>
+        <b>Daily sending limit</b>
+        {isAdmin ? (
+          <>
+            <label style={{ marginTop: 10 }}>Daily sending quota</label>
+            <div className="row" style={{ gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <input type="number" min={1} value={quota} onChange={(e) => setQuota(parseInt(e.target.value) || 20)} style={{ maxWidth: 160 }} />
+              <button className="btn sm" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save quota"}</button>
+            </div>
+          </>
+        ) : (
+          <div className="mut tiny" style={{ marginTop: 8 }}>
+            Your account can send up to <b style={{ color: "var(--ink)" }}>{d.stats.daily_quota}</b> emails per day. Contact an admin to change this limit.
+          </div>
+        )}
         <div className="mut tiny" style={{ marginTop: 8 }}>Used today: {d.stats.sent_today} · remaining: {d.stats.remaining_quota}</div>
       </div>
       <EmailTester toast={toast} />
+    </>
+  );
+}
+
+/* ---------- Admin Users ---------- */
+function AdminUsers({ toast }: any) {
+  const [users, setUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  const load = () =>
+    api("/api/admin/users")
+      .then((j) => { setUsers(j.users || []); setLoading(false); })
+      .catch((e) => { toast((e as Error).message || "Failed to load users"); setLoading(false); });
+
+  useEffect(() => { load(); }, []);
+
+  const patch = async (id: string, body: Record<string, unknown>) => {
+    setSavingId(id);
+    try {
+      await api("/api/admin/users", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...body }) });
+      toast("Updated");
+      await load();
+    } catch (e) {
+      toast((e as Error).message || "Update failed");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  return (
+    <>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+        <p className="lead" style={{ margin: 0 }}>All registered users — roles, Gmail status, and daily quotas.</p>
+        <RefreshButton onClick={async () => { setLoading(true); await load(); toast("Refreshed"); }} />
+      </div>
+      <div className="card">
+        {loading ? <Loader /> : users.length === 0 ? <div className="mut">No users found.</div> : (
+          <table>
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Role</th>
+                <th>Gmail</th>
+                <th>Quota</th>
+                <th>Professors</th>
+                <th>Emails</th>
+                <th>Joined</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id}>
+                  <td>
+                    <b>{u.sender_name || u.full_name || u.email || "—"}</b>
+                    <div className="mut tiny">{u.email}</div>
+                  </td>
+                  <td>
+                    <select value={u.role} disabled={savingId === u.id} onChange={(e) => patch(u.id, { role: e.target.value })} style={{ height: 32, padding: "4px 8px", maxWidth: 110 }}>
+                      <option value="user">user</option>
+                      <option value="admin">admin</option>
+                    </select>
+                  </td>
+                  <td>
+                    <span className={`pill ${u.gmail_needs_reconnect ? "off" : u.gmail_connected ? "on" : "off"}`}>
+                      {u.gmail_needs_reconnect ? "EXPIRED" : u.gmail_connected ? "ON" : "OFF"}
+                    </span>
+                    {u.gmail_email && <div className="mut tiny">{u.gmail_email}</div>}
+                  </td>
+                  <td>
+                    <input type="number" min={1} defaultValue={u.daily_quota} key={`${u.id}-${u.daily_quota}`} disabled={savingId === u.id}
+                      onBlur={(e) => { const n = parseInt(e.target.value, 10); if (Number.isFinite(n) && n >= 1 && n !== u.daily_quota) patch(u.id, { daily_quota: n }); }}
+                      style={{ width: 72, height: 32, padding: "4px 8px" }} />
+                  </td>
+                  <td className="mut">{u.professors}</td>
+                  <td className="mut">{u.emails}</td>
+                  <td className="mut tiny">{u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </>
   );
 }

@@ -58,9 +58,17 @@ export async function POST(req: Request) {
       // Respect the chosen university: mined rows must match its name.
       if (institutionLabel) qb = qb.ilike("institution", `%${institutionLabel}%`);
       // Respect the chosen field(s): mined "field" must contain one of the labels.
+      // Quote patterns for PostgREST so multi-word names like "Artificial Intelligence" work.
       if (conceptLabels.length) {
-        const ors = conceptLabels.map((l) => `field.ilike.%${l.replace(/[,()]/g, " ")}%`).join(",");
-        qb = qb.or(ors);
+        const ors = conceptLabels
+          .map((l) => l.replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim())
+          .filter(Boolean)
+          .map((l) => {
+            const esc = l.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_").replace(/"/g, "");
+            return `field.ilike."%${esc}%"`;
+          })
+          .join(",");
+        if (ors) qb = qb.or(ors);
       }
       const { data: mined } = await qb;
       const extra = (mined || [])

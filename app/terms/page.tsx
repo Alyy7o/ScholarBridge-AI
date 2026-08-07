@@ -2,8 +2,9 @@ import MarketingShell from "@/components/MarketingShell";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Terms of Service — ScholarBridge AI",
+  title: "Terms of Service",
   description: "Terms and conditions for using ScholarBridge AI.",
+  alternates: { canonical: "/terms" },
 };
 
 export default function TermsPage() {

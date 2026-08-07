@@ -1,5 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import ResponsiveHeroBanner from "@/components/ui/responsive-hero-banner";
 import FeatureGrid from "@/components/ui/feature-grid";
@@ -94,7 +95,11 @@ const reveal = {
 const ease = [0.16, 1, 0.3, 1] as const;
 
 export default function Landing({ onGetStarted }: { onGetStarted?: () => void }) {
-  const start = () => onGetStarted?.();
+  const router = useRouter();
+  const start = () => {
+    if (onGetStarted) onGetStarted();
+    else router.push("/?signin=1");
+  };
 
   return (
     <div className="lp">
@@ -106,7 +111,7 @@ export default function Landing({ onGetStarted }: { onGetStarted?: () => void })
         title="Reach the right"
         rotatingWords={["professors", "scientists", "colleagues"]}
         titleLine2Suffix="worldwide"
-        description="Find labs by field and university, personalize every email with their research, and send from your Gmail — outreach that feels human at scale."
+        description="ScholarBridge AI is a research-aware outreach tool that helps you find labs by field and university, personalize every email with their research, and send from your Gmail — outreach that feels human at scale."
         primaryButtonText="Get started"
         secondaryButtonText="See how it works"
         secondaryButtonHref="/how-it-works"
@@ -115,6 +120,7 @@ export default function Landing({ onGetStarted }: { onGetStarted?: () => void })
           { label: "Features", href: "#features" },
           { label: "How it works", href: "/how-it-works" },
           { label: "About", href: "/about" },
+          { label: "FAQ", href: "/faq" },
           { label: "Contact", href: "/contact" },
         ]}
       />

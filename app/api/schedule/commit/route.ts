@@ -8,6 +8,24 @@ export async function POST(req: Request) {
   if (!user) return err("Unauthorized", 401);
   const { emails = [], schedule = {}, attachment_ids = [] } = await req.json();
   if (!emails.length) return err("No emails to schedule.");
+
+  const { data: profile } = await sb.from("profiles").select("daily_quota").eq("id", user.id).maybeSingle();
+  const quota = profile?.daily_quota ?? 20;
+  const dayAgo = Date.now() - 86400_000;
+  const { data: sentRows } = await sb
+    .from("scheduled_emails")
+    .select("sent_at")
+    .eq("status", "sent")
+    .gte("sent_at", new Date(dayAgo).toISOString());
+  const sentToday = (sentRows || []).length;
+  const remaining = Math.max(0, quota - sentToday);
+  if (emails.length > remaining) {
+    return err(
+      `Daily quota exceeded: you can schedule ${remaining} more today (limit ${quota}, already sent ${sentToday}).`,
+      400,
+    );
+  }
+
   const cfg = schedule as ScheduleConfig;
   const slots = generateSlots(emails.length, cfg);
 

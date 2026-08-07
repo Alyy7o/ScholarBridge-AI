@@ -1,16 +1,15 @@
-import { requireUser, supabaseAdmin } from "@/lib/supabase";
+import { requireAdmin } from "@/lib/roles";
+import { supabaseAdmin } from "@/lib/supabase";
 import { json, err } from "@/lib/http";
 
 /** Start/pause the background crawl, or reset a country to re-crawl it. */
 export async function POST(req: Request) {
-  const { user } = await requireUser();
-  if (!user) return err("Unauthorized", 401);
+  const auth = await requireAdmin();
+  if ("response" in auth) return auth.response;
   const b = await req.json().catch(() => ({}));
   const admin = supabaseAdmin();
 
   if (typeof b.active === "boolean") {
-    // Surface DB errors instead of silently returning ok — a swallowed error
-    // makes the UI toggle snap back to off with no explanation.
     const { error } = await admin
       .from("harvest_control")
       .upsert({ id: 1, active: b.active, updated_at: new Date().toISOString() }, { onConflict: "id" });
@@ -25,7 +24,6 @@ export async function POST(req: Request) {
     if (error) return err(`Could not reset ${b.reset}: ${error.message}`, 500);
   }
 
-  // Pause a country (crawler skips it) or resume it (continues from its cursor).
   if (b.pause && /^[a-z]{2}$/.test(String(b.pause))) {
     const { error } = await admin.from("harvest_state")
       .update({ status: "paused", updated_at: new Date().toISOString() })
@@ -39,7 +37,6 @@ export async function POST(req: Request) {
     if (error) return err(`Could not resume ${b.resume}: ${error.message}`, 500);
   }
 
-  // Read back the live value so the client can trust the response.
   const { data } = await admin.from("harvest_control").select("active").eq("id", 1).maybeSingle();
   return json({ ok: true, active: !!data?.active });
 }

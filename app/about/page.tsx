@@ -1,9 +1,18 @@
 import MarketingShell from "@/components/MarketingShell";
 import type { Metadata } from "next";
+import { SITE_EMAIL } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: "About — ScholarBridge AI",
-  description: "Why we built ScholarBridge — research-aware outreach for applicants and labs.",
+  title: "About",
+  description:
+    "ScholarBridge AI is research-aware professor outreach for applicants and labs — find faculty, personalize emails with their work, and send from Gmail.",
+  alternates: { canonical: "/about" },
+  openGraph: {
+    title: "About — ScholarBridge AI",
+    description:
+      "Why we built ScholarBridge — research-aware outreach for applicants and labs.",
+    url: "/about",
+  },
 };
 
 export default function AboutPage() {
@@ -13,8 +22,9 @@ export default function AboutPage() {
         <p className="eyebrow">About us</p>
         <h1>Built for outreach that respects research</h1>
         <p className="lead">
-          ScholarBridge helps students and researchers find the right professors, personalize every email
-          with their work, and send from Gmail — without spreadsheet chaos.
+          ScholarBridge AI is a research-aware outreach platform that helps students and researchers find the
+          right professors, personalize every email with their work, and send from Gmail — without spreadsheet
+          chaos.
         </p>
 
         <h2>Our mission</h2>
@@ -44,10 +54,16 @@ export default function AboutPage() {
           personalized, research-aware messages — at a pace that still feels personal.
         </p>
 
+        <h2>Who&apos;s behind it</h2>
+        <p>
+          ScholarBridge AI is built by Ali Javed. For product questions, partnerships, or feedback, write to{" "}
+          <a href={`mailto:${SITE_EMAIL}`}>{SITE_EMAIL}</a> or use the <a href="/contact">contact form</a>.
+        </p>
+
         <h2>Contact</h2>
         <p>
           Questions or feedback? Write us at{" "}
-          <a href="mailto:alijaved.developer@gmail.com">alijaved.developer@gmail.com</a>
+          <a href={`mailto:${SITE_EMAIL}`}>{SITE_EMAIL}</a>
           {" "}or use the <a href="/contact">contact form</a>.
         </p>
       </article>

@@ -131,6 +131,7 @@ pre{white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.5;ma
 .tp-col{display:flex;flex-direction:column;gap:3px;max-height:150px;overflow-y:auto;width:54px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 .tp-col::-webkit-scrollbar{width:6px}
 .tp-col::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+/* Bucket filter dropdown */
 .tp-item{background:none;border:none;color:var(--ink);padding:7px 0;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;text-align:center;flex:0 0 auto}
 .tp-item:hover{background:var(--line)}
 .tp-item.on{background:var(--acc);color:var(--on-acc)}

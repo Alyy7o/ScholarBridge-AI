@@ -1,39 +1,27 @@
-import { requireUser, supabaseAdmin } from "@/lib/supabase";
+import { requireAdmin } from "@/lib/roles";
+import { supabaseAdmin } from "@/lib/supabase";
 import { json, err } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
 /** Crawl control + per-country progress for the admin panel. */
 export async function GET() {
-  const { user } = await requireUser();
-  if (!user) return err("Unauthorized", 401);
+  const auth = await requireAdmin();
+  if ("response" in auth) return auth.response;
   const admin = supabaseAdmin();
-  const [{ data: ctrl }, { data: states }, { count: total }, { count: high }] = await Promise.all([
+  const [{ data: ctrl }, { data: states }, { count: total }, { count: high }, { data: counts }] = await Promise.all([
     admin.from("harvest_control").select("*").eq("id", 1).maybeSingle(),
     admin.from("harvest_state").select("*"),
-    // "estimated" uses the query planner instead of a full COUNT(*) scan — the
-    // exact figures aren't needed for a dashboard number and this table is large.
-    admin.from("professor_emails").select("*", { count: "estimated", head: true }).not("email", "is", null),
-    admin.from("professor_emails").select("*", { count: "estimated", head: true }).eq("confidence", "high"),
+    admin.from("professor_emails").select("*", { count: "exact", head: true }).not("email", "is", null),
+    admin.from("professor_emails").select("*", { count: "exact", head: true }).eq("confidence", "high"),
+    admin.rpc("email_country_counts"),
   ]);
   const order: string[] = ctrl?.order_list || ["cn", "jp", "kr", "tw", "sg"];
   const byC = new Map((states || []).map((s: any) => [s.country, s]));
 
-  // Per-country counts (estimated — avoids scanning the whole table each poll).
-  const perPriority: Record<string, number> = {};
-  await Promise.all(order.map(async (c) => {
-    const { count } = await admin.from("professor_emails").select("*", { count: "estimated", head: true }).eq("country", c).not("email", "is", null);
-    perPriority[c] = count || 0;
-  }));
-
-  // Counts for EVERY other country via the SQL grouping function (needs migration
-  // 0006). If it's missing we just show the priority countries.
-  const { data: counts } = await admin.rpc("email_country_counts");
+  // Exact per-country counts from SQL (same source as the country detail page).
   const cachedByCountry = new Map<string, number>((counts || []).map((r: any) => [r.country, Number(r.count)]));
-  for (const c of order) cachedByCountry.set(c, perPriority[c]); // priority counts win
 
-  // Show a card for each priority country (even at 0) plus every other country
-  // that has found emails. Priority ones keep their crawl status/papers.
   const allCountries = Array.from(new Set([...order, ...cachedByCountry.keys()]));
   const countries = allCountries.map((c) => ({
     country: c,
@@ -43,7 +31,6 @@ export async function GET() {
     updated_at: byC.get(c)?.updated_at || null,
     priority: order.includes(c),
   }));
-  // Priority countries first, then the rest by most emails.
   countries.sort((a, b) => (Number(b.priority) - Number(a.priority)) || (b.cached - a.cached));
 
   return json({
