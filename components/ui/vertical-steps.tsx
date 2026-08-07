@@ -24,7 +24,7 @@ const DEFAULT_STEPS: VerticalStep[] = [
   {
     n: "3",
     title: "Schedule & send",
-    body: "Pick your slots and send automatically from your Gmail — then track every one.",
+    body: "Pick your slots and send automatically from your email — then track every one.",
   },
 ];
 

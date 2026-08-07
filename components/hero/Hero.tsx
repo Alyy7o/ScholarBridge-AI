@@ -36,7 +36,7 @@ class SceneBoundary extends React.Component<{ children: React.ReactNode }, { err
   }
 }
 
-const badges = ["Research-aware search", "Sends from your Gmail", "AI-personalized", "Free to start"];
+const badges = ["Research-aware search", "Sends from your email", "AI-personalized", "Free to start"];
 
 export default function Hero({ onGetStarted }: { onGetStarted?: () => void }) {
   const [mobile, setMobile] = React.useState(false);

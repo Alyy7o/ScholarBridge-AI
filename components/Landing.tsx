@@ -48,7 +48,7 @@ const FEATURES = [
   },
   {
     title: "Schedule & send",
-    body: "Queue your whole outreach campaign across dates and times, then let it send automatically from your own Gmail.",
+    body: "Queue your whole outreach campaign across dates and times, then let it send automatically from your own email.",
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" {...ic}>
         <rect x="3" y="4" width="18" height="18" rx="2" />
@@ -111,7 +111,7 @@ export default function Landing({ onGetStarted }: { onGetStarted?: () => void })
         title="Reach the right"
         rotatingWords={["professors", "scientists", "colleagues"]}
         titleLine2Suffix="worldwide"
-        description="ScholarBridge AI is a research-aware outreach tool that helps you find labs by field and university, personalize every email with their research, and send from your Gmail — outreach that feels human at scale."
+        description="ScholarBridge AI is a research-aware outreach tool that helps you find labs by field and university, personalize every email with their research, and send from your email — outreach that feels human at scale."
         primaryButtonText="Get started"
         secondaryButtonText="See how it works"
         secondaryButtonHref="/how-it-works"

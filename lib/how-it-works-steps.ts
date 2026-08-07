@@ -8,7 +8,7 @@ export const HOW_IT_WORKS_STEPS: HowItWorksStep[] = [
   {
     n: "01",
     title: "Sign in with Google",
-    body: "Connect the Gmail account you’ll send from. ScholarBridge never sends as itself — every message goes out from your inbox so replies land where you expect them.",
+    body: "Connect the email account you’ll send from. ScholarBridge never sends as itself — every message goes out from your inbox so replies land where you expect them.",
   },
   {
     n: "02",
@@ -28,6 +28,6 @@ export const HOW_IT_WORKS_STEPS: HowItWorksStep[] = [
   {
     n: "05",
     title: "Send & track",
-    body: "Due messages send automatically from your Gmail. Follow delivery and open status from the dashboard so you know what’s working and who to follow up with.",
+    body: "Due messages send automatically from your email. Follow delivery and open status from the dashboard so you know what’s working and who to follow up with.",
   },
 ];

@@ -6,12 +6,12 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "How it works",
   description:
-    "Five steps from finding professors to sending personalized, research-aware outreach from your Gmail with ScholarBridge AI.",
+    "Five steps from finding professors to sending personalized, research-aware outreach from your email with ScholarBridge AI.",
   alternates: { canonical: "/how-it-works" },
   openGraph: {
     title: "How it works — ScholarBridge AI",
     description:
-      "Five steps from finding professors to sending personalized outreach from your Gmail.",
+      "Five steps from finding professors to sending personalized outreach from your email.",
     url: "/how-it-works",
   },
 };

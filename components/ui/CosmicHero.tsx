@@ -226,7 +226,7 @@ export default function CosmicHero({ onGetStarted }: { onGetStarted?: () => void
         </div>
         <div className="ch-trust">
           <span>✦ Research-aware search</span>
-          <span>✦ Sends from your Gmail</span>
+          <span>✦ Sends from your email</span>
           <span>✦ AI-personalized</span>
         </div>
       </div>

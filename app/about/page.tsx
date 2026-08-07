@@ -5,7 +5,7 @@ import { SITE_EMAIL } from "@/lib/site";
 export const metadata: Metadata = {
   title: "About",
   description:
-    "ScholarBridge AI is research-aware professor outreach for applicants and labs — find faculty, personalize emails with their work, and send from Gmail.",
+    "ScholarBridge AI is research-aware professor outreach for applicants and labs — find faculty, personalize emails with their work, and send from your email.",
   alternates: { canonical: "/about" },
   openGraph: {
     title: "About — ScholarBridge AI",
@@ -23,7 +23,7 @@ export default function AboutPage() {
         <h1>Built for outreach that respects research</h1>
         <p className="lead">
           ScholarBridge AI is a research-aware outreach platform that helps students and researchers find the
-          right professors, personalize every email with their work, and send from Gmail — without spreadsheet
+          right professors, personalize every email with their work, and send from your email — without spreadsheet
           chaos.
         </p>
 
@@ -40,7 +40,7 @@ export default function AboutPage() {
             <strong>Specificity beats volume.</strong> One thoughtful note outperforms a hundred generic blasts.
           </li>
           <li>
-            <strong>You own the relationship.</strong> Messages send from your Gmail so replies land where you
+            <strong>You own the relationship.</strong> Messages send from your email so replies land where you
             expect them.
           </li>
           <li>

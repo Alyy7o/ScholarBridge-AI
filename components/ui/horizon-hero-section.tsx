@@ -30,7 +30,7 @@ const SECTIONS = [
   },
   {
     title: "OUTREACH",
-    line1: "Schedule your campaign and send from your Gmail —",
+    line1: "Schedule your campaign and send from your email —",
     line2: "then track every delivery and open.",
   },
 ];

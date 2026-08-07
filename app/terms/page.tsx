@@ -44,7 +44,7 @@ export default function TermsPage() {
 
         <h2>4. Email &amp; Google</h2>
         <p>
-          When you connect Google, messages are sent from your Gmail. You remain the sender and are responsible
+          When you connect Google, messages are sent from your email. You remain the sender and are responsible
           for content, recipients, and compliance with anti-spam and academic conduct rules. We do not send as
           ScholarBridge on your behalf.
         </p>

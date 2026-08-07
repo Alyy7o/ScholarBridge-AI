@@ -79,7 +79,7 @@ const ResponsiveHeroBanner: React.FC<ResponsiveHeroBannerProps> = ({
   title = "Reach the right",
   rotatingWords = DEFAULT_WORDS,
   titleLine2Suffix = "worldwide",
-  description = "Find labs by field and university, personalize every email with their research, and send from your Gmail — outreach that feels human at scale.",
+  description = "Find labs by field and university, personalize every email with their research, and send from your email — outreach that feels human at scale.",
   primaryButtonText = "Get started",
   onPrimaryClick,
   secondaryButtonText = "See how it works",

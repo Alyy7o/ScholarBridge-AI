@@ -53,7 +53,7 @@ export function howToSchema() {
     "@type": "HowTo",
     name: "How to run research-aware professor outreach with ScholarBridge AI",
     description:
-      "Five steps from finding professors to sending personalized outreach from your Gmail.",
+      "Five steps from finding professors to sending personalized outreach from your email.",
     totalTime: "PT30M",
     step: HOW_IT_WORKS_STEPS.map((s, i) => ({
       "@type": "HowToStep",

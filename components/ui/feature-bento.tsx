@@ -28,7 +28,7 @@ const FEATURES = [
     ),
   },
   {
-    title: "Schedule from your Gmail",
+    title: "Schedule from your email",
     body: "Queue your campaign across dates and times, then send automatically — and track every delivery.",
     tag: "Outreach",
     icon: (
@@ -41,9 +41,9 @@ const FEATURES = [
 ];
 
 const STATS = [
-  { n: "250M+", l: "research papers indexed" },
-  { n: "< 30s", l: "to a personalized draft" },
-  { n: "100%", l: "sent from your Gmail" },
+  { n: "30,000+", l: "professor emails available" },
+  { n: "100+", l: "countries covered" },
+  { n: "100%", l: "sent from your email" },
 ];
 
 export function FeatureBento({ onGetStarted }: { onGetStarted?: () => void }) {

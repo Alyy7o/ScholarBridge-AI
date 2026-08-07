@@ -8,12 +8,12 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "FAQ",
   description:
-    "Answers to common questions about ScholarBridge AI: research-aware professor outreach, Gmail sending, finding labs, and support.",
+    "Answers to common questions about ScholarBridge AI: research-aware professor outreach, sending from your email, finding labs, and support.",
   alternates: { canonical: "/faq" },
   openGraph: {
     title: "FAQ — ScholarBridge AI",
     description:
-      "What is ScholarBridge AI, how research-aware outreach works, Gmail sending, and how to get support.",
+      "What is ScholarBridge AI, how research-aware outreach works, sending from your email, and how to get support.",
     url: "/faq",
   },
 };
@@ -27,7 +27,7 @@ export default function FaqPage() {
         <h1>Frequently asked questions</h1>
         <p className="lead">
           ScholarBridge AI is a research-aware outreach tool for finding professors and sending personalized
-          Gmail campaigns. Here are direct answers to the questions applicants and labs ask most.
+          email campaigns. Here are direct answers to the questions applicants and labs ask most.
         </p>
 
         {FAQ_ITEMS.map((item) => (

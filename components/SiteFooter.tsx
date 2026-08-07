@@ -36,7 +36,7 @@ export default function SiteFooter({ onGetStarted }: { onGetStarted?: () => void
             ScholarBridge <em>AI</em>
           </Link>
           <p>
-            AI-personalized professor outreach — find labs, draft research-aware emails, schedule, and send from your Gmail.
+            AI-personalized professor outreach — find labs, draft research-aware emails, schedule, and send from your email.
           </p>
         </div>
 

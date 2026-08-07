@@ -130,7 +130,7 @@ export default function MarketingHero({ onGetStarted }: { onGetStarted?: () => v
           </h1>
 
           <p className="mh-sub">
-            Find labs by field and university, personalize every email with their research, and send from your Gmail — outreach that feels human at scale.
+            Find labs by field and university, personalize every email with their research, and send from your email — outreach that feels human at scale.
           </p>
 
           <div className="mh-cta">

@@ -20,7 +20,7 @@ const FEATURES = [
     image: "/brand/features/feature-ai-draft.png",
   },
   {
-    title: "Schedule from Gmail",
+    title: "Schedule from your email",
     body: "Queue campaigns across dates and times, then send automatically from your inbox.",
     tag: "Send",
     span: "normal",
@@ -42,7 +42,7 @@ const FEATURES = [
   },
   {
     title: "Private by default",
-    body: "Campaigns run from your Gmail. Your drafts and lists stay in your account — not a shared inbox.",
+    body: "Campaigns run from your email. Your drafts and lists stay in your account — not a shared inbox.",
     tag: "Trust",
     span: "normal",
     image: "/brand/features/feature-privacy.png",
@@ -52,7 +52,7 @@ const FEATURES = [
 const STATS = [
   { n: "30,000+", l: "professor emails available" },
   { n: "100+", l: "countries covered" },
-  { n: "100%", l: "sent from your Gmail" },
+  { n: "100%", l: "sent from your email" },
 ];
 
 export default function FeatureGrid({ onGetStarted }: { onGetStarted?: () => void }) {
