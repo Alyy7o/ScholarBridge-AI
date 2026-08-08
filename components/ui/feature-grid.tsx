@@ -2,7 +2,7 @@
 /**
  * Why ScholarBridge — asymmetric bento with generated feature visuals.
  */
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 
 const FEATURES = [
   {
@@ -56,15 +56,20 @@ const STATS = [
 ];
 
 export default function FeatureGrid({ onGetStarted }: { onGetStarted?: () => void }) {
+  const reduceMotion = useReducedMotion();
+  const yHead = reduceMotion ? 0 : 20;
+  const yCard = reduceMotion ? 0 : 24;
+  const dur = reduceMotion ? 0 : 0.55;
+
   return (
     <section id="features" className="fg">
       <div className="fg-inner">
         <motion.div
           className="fg-head"
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: reduceMotion ? 1 : 0, y: yHead }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.4 }}
-          transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+          transition={{ duration: dur, ease: [0.16, 1, 0.3, 1] }}
         >
           <span className="fg-eyebrow">Why ScholarBridge</span>
           <h2 className="fg-h2">Outreach that reads as research-aware</h2>
@@ -78,10 +83,10 @@ export default function FeatureGrid({ onGetStarted }: { onGetStarted?: () => voi
             <motion.article
               key={f.title}
               className={`fg-card ${f.span}`}
-              initial={{ opacity: 0, y: 24 }}
+              initial={{ opacity: reduceMotion ? 1 : 0, y: yCard }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.2 }}
-              transition={{ duration: 0.5, delay: i * 0.05, ease: [0.16, 1, 0.3, 1] }}
+              transition={{ duration: reduceMotion ? 0 : 0.5, delay: reduceMotion ? 0 : i * 0.05, ease: [0.16, 1, 0.3, 1] }}
             >
               <div
                 className="fg-media"
@@ -99,10 +104,10 @@ export default function FeatureGrid({ onGetStarted }: { onGetStarted?: () => voi
 
           <motion.div
             className="fg-stats"
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: reduceMotion ? 1 : 0, y: yHead }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.3 }}
-            transition={{ duration: 0.5, delay: 0.1 }}
+            transition={{ duration: reduceMotion ? 0 : 0.5, delay: reduceMotion ? 0 : 0.1 }}
           >
             <div className="fg-stats-grid">
               {STATS.map((s) => (

@@ -2,7 +2,7 @@
 /**
  * Vertical process steps — numbered circles with a continuous centered connector line.
  */
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 
 export type VerticalStep = {
   n: string;
@@ -37,14 +37,18 @@ export default function VerticalSteps({
   heading?: string;
   subheading?: string;
 }) {
+  const reduceMotion = useReducedMotion();
+  const y = reduceMotion ? 0 : 20;
+  const yCard = reduceMotion ? 0 : 40;
+
   return (
     <section id="how" className="vs">
       <motion.div
         className="vs-head"
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: reduceMotion ? 1 : 0, y }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true }}
-        transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+        transition={{ duration: reduceMotion ? 0 : 0.55, ease: [0.16, 1, 0.3, 1] }}
       >
         <h2 className="vs-heading">{heading}</h2>
         <p className="vs-sub">{subheading}</p>
@@ -58,10 +62,10 @@ export default function VerticalSteps({
           <motion.article
             key={s.n}
             className="vs-card"
-            initial={{ opacity: 0, y: 40 }}
+            initial={{ opacity: reduceMotion ? 1 : 0, y: yCard }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.4 }}
-            transition={{ duration: 0.55, delay: i * 0.06, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: reduceMotion ? 0 : 0.55, delay: reduceMotion ? 0 : i * 0.06, ease: [0.16, 1, 0.3, 1] }}
           >
             <div className="vs-track" aria-hidden>
               <span className="vs-node">{s.n}</span>
@@ -80,6 +84,9 @@ export default function VerticalSteps({
           max-width: 720px;
           margin: 0 auto;
           padding: 64px 24px 80px;
+          position: relative;
+          z-index: 2;
+          background: var(--bg);
         }
         .vs-head {
           text-align: center;

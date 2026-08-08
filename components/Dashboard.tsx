@@ -278,19 +278,40 @@ export default function Dashboard() {
   // visibility. This preserves each tab's state (search results, in-memory file
   // uploads, form inputs) across tab switches and avoids refetching on return.
   const [visited, setVisited] = useState<Set<string>>(() => new Set([section]));
+  const [navOpen, setNavOpen] = useState(false);
   useEffect(() => {
     setVisited((v) => (v.has(section) ? v : new Set(v).add(section)));
   }, [section]);
 
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setNavOpen(false); };
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [navOpen]);
+
+  const goSection = (id: string) => {
+    setSection(id);
+    setNavOpen(false);
+  };
+
   const title = TITLES[section] || "Dashboard";
 
   return (
-    <div className="app">
-      <aside className="side">
+    <div className={"app" + (navOpen ? " nav-open" : "")}>
+      {navOpen && (
+        <button type="button" className="side-backdrop" aria-label="Close menu" onClick={() => setNavOpen(false)} />
+      )}
+      <aside className={"side" + (navOpen ? " open" : "")}>
         <div className="brand"><div className="logo"><BrandLogo variant="app" size={34} priority /></div><div><b>ScholarBridge</b><span>AI outreach scheduler</span></div></div>
         <nav className="nav">
           {sections.map(([id, label]) => (
-            <button key={id} className={id === section ? "on" : ""} onClick={() => setSection(id)}>
+            <button key={id} className={id === section ? "on" : ""} onClick={() => goSection(id)}>
               <span className="nav-ic">{NAV_ICONS[id]}</span> {label}
             </button>
           ))}
@@ -299,6 +320,19 @@ export default function Dashboard() {
       <main className="main" style={{ padding: 0 }}>
         {/* Top navbar */}
         <div className="navbar">
+          <button
+            type="button"
+            className="nav-burger"
+            aria-label={navOpen ? "Close menu" : "Open menu"}
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen((o) => !o)}
+          >
+            {navOpen ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+            )}
+          </button>
           <div className="nav-title">{title}</div>
           <div className="nav-right">
             {(() => {
@@ -314,7 +348,7 @@ export default function Dashboard() {
             })()}
             <button className="acct-btn" onClick={() => setAcctOpen((o) => !o)}>
               <span className="acct-avatar">{(me.name || "?").slice(0, 1).toUpperCase()}</span>
-              {me.name || "Account"}
+              <span className="acct-name">{me.name || "Account"}</span>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6" /></svg>
             </button>
             {acctOpen && (
@@ -322,7 +356,7 @@ export default function Dashboard() {
                 <button type="button" aria-hidden className="tpf-backdrop" onClick={() => setAcctOpen(false)} />
                 <div className="acct-menu">
                   <div className="am-email">{me.email || "Signed in"}</div>
-                  <button onClick={() => { setSection("settings"); setAcctOpen(false); }}>{NAV_ICONS.settings} Settings</button>
+                  <button onClick={() => { goSection("settings"); setAcctOpen(false); }}>{NAV_ICONS.settings} Settings</button>
                   <button onClick={signOut}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg> Sign out</button>
                 </div>
               </>
@@ -330,7 +364,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div style={{ padding: "24px 26px" }}>
+        <div className="main-pad">
           {Object.entries(TABS).map(([id, Comp]) =>
             visited.has(id) && ((id !== "emails" && id !== "users") || isAdmin) ? (
               <div key={id} style={{ display: id === section ? "block" : "none" }}>
@@ -1300,7 +1334,7 @@ function Professors({ toast }: any) {
       )}
 
       <div className="card">{loading ? <Loader /> : shown.length ? (<>
-        <table><thead><tr><th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th><th style={{ width: 40 }}>#</th><th>Name</th><th>Email</th><th>University/Lab</th><th style={{ minWidth: 150 }}>Buckets</th><th style={{ minWidth: 200 }}>Topics / Field</th><th style={{ width: 44 }} /></tr></thead><tbody>
+        <div className="table-wrap"><table><thead><tr><th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th><th style={{ width: 40 }}>#</th><th>Name</th><th>Email</th><th>University/Lab</th><th style={{ minWidth: 150 }}>Buckets</th><th style={{ minWidth: 200 }}>Topics / Field</th><th style={{ width: 44 }} /></tr></thead><tbody>
           {paged.map((p, i) => (
             <tr key={p.id}>
               <td style={{ verticalAlign: "top" }}><input type="checkbox" checked={sel.has(p.id)} onChange={() => toggle(p.id)} aria-label={`Select ${p.name}`} /></td>
@@ -1313,7 +1347,7 @@ function Professors({ toast }: any) {
               <td style={{ verticalAlign: "top" }}><RowMenu items={[{ label: "Edit", onClick: () => setModal({ type: "edit", prof: p }) }, { label: "Delete", onClick: () => setModal({ type: "confirm", prof: p }), danger: true }]} /></td>
             </tr>
           ))}
-        </tbody></table>
+        </tbody></table></div>
         {pageCount > 1 && (
           <div className="row" style={{ justifyContent: "center", marginTop: 14, gap: 10 }}>
             <button className="btn sm sec" disabled={pageC <= 1} onClick={() => setPage(pageC - 1)}>&larr; Prev</button>
@@ -1409,9 +1443,9 @@ function Attachments({ toast }: any) {
         <div className="row" style={{ marginTop: 12 }}><button className="btn sm" onClick={up}>Upload</button><span className="mut">{st}</span></div>
       </div>
       <div className="card">{loading ? <Loader /> : list.length ? (
-        <table><thead><tr><th>File</th><th>Type</th><th>Size</th><th /></tr></thead><tbody>
+        <div className="table-wrap"><table><thead><tr><th>File</th><th>Type</th><th>Size</th><th /></tr></thead><tbody>
           {list.map((x) => (<tr key={x.id}><td><b>{x.filename}</b></td><td><span className="pill draft">{x.kind}</span></td><td className="mut">{Math.round((x.size || 0) / 1024)} KB</td><td><button className="btn sm danger" onClick={() => del(x.id)}>Delete</button></td></tr>))}
-        </tbody></table>) : <div className="mut">No attachments yet.</div>}</div>
+        </tbody></table></div>) : <div className="mut">No attachments yet.</div>}</div>
     </>
   );
 }
@@ -1583,7 +1617,7 @@ function History({ toast }: any) {
             <button type="button" className={"btn sm " + (view === "calendar" ? "" : "sec")} style={{ borderRadius: 0, border: "none" }} onClick={() => setView("calendar")}>Calendar</button>
           </div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "nowrap", flexShrink: 0 }}>
+        <div className="hist-tools-right" style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "nowrap", flexShrink: 0 }}>
           <div style={{ position: "relative", flexShrink: 0 }}>
             <button className="btn sm sec" style={{ display: "inline-flex", alignItems: "center", gap: 7 }} onClick={() => setFilterOpen((o) => !o)}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></svg>
@@ -1600,7 +1634,7 @@ function History({ toast }: any) {
               </>
             )}
           </div>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search recipient or subject" style={{ width: 220, maxWidth: 220, height: 34, padding: "7px 12px", flexShrink: 0 }} />
+          <input className="hist-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search recipient or subject" style={{ width: 220, maxWidth: 220, height: 34, padding: "7px 12px", flexShrink: 0 }} />
           <RefreshButton onClick={refresh} busy={refreshing} />
         </div>
       </div>
@@ -1676,7 +1710,7 @@ function History({ toast }: any) {
       ) : (
       <div className="card">{loading ? <Loader /> : filtered.length ? (
         <>
-        <table><thead><tr><th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th><th style={{ width: 44 }}>#</th><th>When</th><th>Recipient</th><th>Subject</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+        <div className="table-wrap"><table><thead><tr><th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th><th style={{ width: 44 }}>#</th><th>When</th><th>Recipient</th><th>Subject</th><th>Status</th><th>Actions</th></tr></thead><tbody>
           {paged.map((e, i) => (
             <tr key={e.id}>
               <td><input type="checkbox" checked={sel.has(e.id)} onChange={() => toggle(e.id)} aria-label="Select email" /></td>
@@ -1688,7 +1722,7 @@ function History({ toast }: any) {
               <td><RowMenu items={emailMenuItems(e)} /></td>
             </tr>
           ))}
-        </tbody></table>
+        </tbody></table></div>
         {pageCount > 1 && (
           <div className="row" style={{ justifyContent: "center", marginTop: 14, gap: 10 }}>
             <button className="btn sm sec" disabled={pageC <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>&larr; Prev</button>
@@ -2076,7 +2110,7 @@ function FindProfessors({ toast }: any) {
               </label>
             </div>
             {shown.length ? (
-              <table><thead><tr><th style={{ width: 28 }}><input type="checkbox" aria-label="Select all" checked={shown.length > 0 && shown.every((r) => sel[r.openalex_id])} onChange={() => setSel((s) => { const all = shown.every((r) => s[r.openalex_id]); const n = { ...s }; if (all) { for (const r of shown) delete n[r.openalex_id]; } else { for (const r of shown) n[r.openalex_id] = r; } return n; })} /></th><th style={{ width: 44 }}>#</th><th>Name</th><th>Institution</th><th>Country</th><th>Topics</th><th>Works</th><th>Cited</th><th>Email</th></tr></thead><tbody>
+              <div className="table-wrap"><table><thead><tr><th style={{ width: 28 }}><input type="checkbox" aria-label="Select all" checked={shown.length > 0 && shown.every((r) => sel[r.openalex_id])} onChange={() => setSel((s) => { const all = shown.every((r) => s[r.openalex_id]); const n = { ...s }; if (all) { for (const r of shown) delete n[r.openalex_id]; } else { for (const r of shown) n[r.openalex_id] = r; } return n; })} /></th><th style={{ width: 44 }}>#</th><th>Name</th><th>Institution</th><th>Country</th><th>Topics</th><th>Works</th><th>Cited</th><th>Email</th></tr></thead><tbody>
                 {shown.map((r, i) => (
                   <tr key={r.openalex_id} onClick={() => setDetail(r)} title="Click for details & papers" style={{ cursor: "pointer" }}
                     onMouseEnter={(e) => (e.currentTarget.style.background = "var(--field)")}
@@ -2101,7 +2135,7 @@ function FindProfessors({ toast }: any) {
                     })()}</td>
                   </tr>
                 ))}
-              </tbody></table>
+              </tbody></table></div>
             ) : <div className="mut">No professors with an email on this page yet. Click Find on a row, or turn off the filter.</div>}
           </>
         );
@@ -2312,7 +2346,7 @@ function CountryDetail({ code, name, onBack, toast }: any) {
         )}
 
         {loading ? <Loader /> : (rows.length ? (
-          <table><thead><tr>
+          <div className="table-wrap"><table><thead><tr>
             <th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th>
             <th style={{ width: 44 }}>#</th><th>Name</th><th>Email</th><th>University</th><th>Field</th>
           </tr></thead><tbody>
@@ -2326,7 +2360,7 @@ function CountryDetail({ code, name, onBack, toast }: any) {
                 <td className="mut">{r.field || "—"}</td>
               </tr>
             ))}
-          </tbody></table>
+          </tbody></table></div>
         ) : <div className="mut">No professors with an email{(nameQ || uniQ || fieldQ) ? " match your filters" : " yet"}.</div>)}
         {pageCount > 1 && (
           <div className="row" style={{ justifyContent: "center", marginTop: 14, gap: 10 }}>
@@ -2510,7 +2544,7 @@ function AdminUsers({ toast }: any) {
       </div>
       <div className="card">
         {loading ? <Loader /> : users.length === 0 ? <div className="mut">No users found.</div> : (
-          <table>
+          <div className="table-wrap"><table>
             <thead>
               <tr>
                 <th>User</th>
@@ -2552,7 +2586,7 @@ function AdminUsers({ toast }: any) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </div>
     </>

@@ -11,12 +11,17 @@ export default function LazyMount({
   minHeight = 420,
   className,
   id,
+  onMount,
+  refreshScrollTrigger = true,
 }: {
   children: ReactNode;
   rootMargin?: string;
   minHeight?: number;
   className?: string;
   id?: string;
+  onMount?: () => void;
+  /** After children mount, refresh GSAP ScrollTrigger so pin lengths match DOM. */
+  refreshScrollTrigger?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [show, setShow] = useState(false);
@@ -36,6 +41,28 @@ export default function LazyMount({
     io.observe(el);
     return () => io.disconnect();
   }, [rootMargin]);
+
+  useEffect(() => {
+    if (!show) return;
+    onMount?.();
+    if (!refreshScrollTrigger) return;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const { ScrollTrigger } = await import("gsap/ScrollTrigger");
+        if (cancelled) return;
+        requestAnimationFrame(() => {
+          if (!cancelled) ScrollTrigger.refresh();
+        });
+      } catch {
+        /* gsap optional if section has no ST */
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [show, onMount, refreshScrollTrigger]);
 
   return (
     <div ref={ref} id={id} className={className} style={!show ? { minHeight } : undefined}>

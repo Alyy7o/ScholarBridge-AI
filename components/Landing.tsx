@@ -1,7 +1,7 @@
 "use client";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import ResponsiveHeroBanner from "@/components/ui/responsive-hero-banner";
 import FeatureGrid from "@/components/ui/feature-grid";
 import VerticalSteps from "@/components/ui/vertical-steps";
@@ -87,15 +87,19 @@ const FEATURES = [
   },
 ];
 
-const reveal = {
-  initial: { opacity: 0, y: 24 },
-  whileInView: { opacity: 1, y: 0 },
+const revealBase = {
   viewport: { once: true, amount: 0.25 },
 };
 const ease = [0.16, 1, 0.3, 1] as const;
 
 export default function Landing({ onGetStarted }: { onGetStarted?: () => void }) {
   const router = useRouter();
+  const reduceMotion = useReducedMotion();
+  const reveal = {
+    ...revealBase,
+    initial: reduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 24 },
+    whileInView: { opacity: 1, y: 0 },
+  };
   const start = () => {
     if (onGetStarted) onGetStarted();
     else router.push("/?signin=1");
@@ -139,11 +143,11 @@ export default function Landing({ onGetStarted }: { onGetStarted?: () => void })
           ↓ scroll
         </div>
       </section>
-      <LazyMount minHeight={720} rootMargin="320px 0px">
+      <LazyMount minHeight={420} rootMargin="320px 0px">
         <RadialFeatureGallery features={FEATURES} />
       </LazyMount>
 
-      <LazyMount minHeight={900} rootMargin="360px 0px" className="lp-scroll-demo" id="product">
+      <LazyMount minHeight={640} rootMargin="360px 0px" className="lp-scroll-demo" id="product">
         <ContainerScroll
           titleComponent={
             <>
@@ -288,6 +292,20 @@ export default function Landing({ onGetStarted }: { onGetStarted?: () => void })
           max-width: 1040px;
           margin: 0 auto;
           padding: 46px 24px;
+        }
+        @media (max-width: 640px) {
+          .lp-sec {
+            padding: 32px 16px;
+          }
+          .lp-dash-mock {
+            padding: 14px;
+          }
+          .lp-dash-stat {
+            padding: 12px;
+          }
+          .lp-dash-stat strong {
+            font-size: 20px;
+          }
         }
         .lp-h2 {
           text-align: center;

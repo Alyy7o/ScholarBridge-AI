@@ -399,8 +399,10 @@ const ResponsiveHeroBanner: React.FC<ResponsiveHeroBannerProps> = ({
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: 40px;
-          height: 40px;
+          width: 44px;
+          height: 44px;
+          min-width: 44px;
+          min-height: 44px;
           border-radius: 999px;
           border: 1px solid rgba(34, 211, 238, 0.25);
           background: rgba(8, 20, 28, 0.5);
@@ -426,7 +428,10 @@ const ResponsiveHeroBanner: React.FC<ResponsiveHeroBannerProps> = ({
         .rhb-mobile a {
           color: rgba(255, 255, 255, 0.88);
           text-decoration: none;
-          padding: 10px 12px;
+          padding: 12px 14px;
+          min-height: 44px;
+          display: flex;
+          align-items: center;
           font-size: 14px;
           font-weight: 600;
         }
