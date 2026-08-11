@@ -12,9 +12,21 @@ const CRON_SECRET = Deno.env.get("CRON_SECRET") ?? "";
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
 function b64url(bytes: Uint8Array): string {
+  return stdB64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Standard base64 for MIME attachment bodies (never base64url). */
+function stdB64(bytes: Uint8Array): string {
   let bin = "";
-  bytes.forEach((b) => (bin += String.fromCharCode(b)));
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
+
+function wrapB64(b64: string): string {
+  return b64.replace(/(.{76})/g, "$1\r\n").replace(/\r\n$/g, "");
 }
 
 async function accessToken(refresh: string): Promise<string | null> {
@@ -94,9 +106,12 @@ async function buildRaw(to: string, from: string, subject: string, body: string,
   push(`Content-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n`);
   push(`--${boundary}\r\nContent-Type: text/html; charset="UTF-8"\r\n\r\n${renderBody(body)}\r\n`);
   for (const a of atts) {
-    push(`--${boundary}\r\nContent-Type: ${a.mime}; name="${a.filename}"\r\n`);
-    push(`Content-Disposition: attachment; filename="${a.filename}"\r\nContent-Transfer-Encoding: base64\r\n\r\n`);
-    push(b64url(a.data) + "\r\n"); // base64url is accepted by Gmail for the part body via standard base64; use std:
+    const mime = (a.mime || "").trim() || "application/octet-stream";
+    const wrapped = wrapB64(stdB64(a.data));
+    const fname = String(a.filename || "attachment").replace(/[\r\n"\\]/g, "_");
+    push(`--${boundary}\r\nContent-Type: ${mime}; name="${fname}"\r\n`);
+    push(`Content-Disposition: attachment; filename="${fname}"\r\nContent-Transfer-Encoding: base64\r\n\r\n`);
+    push(wrapped + "\r\n");
   }
   push(`--${boundary}--`);
   const total = chunks.reduce((n, c) => n + c.length, 0);

@@ -20,13 +20,22 @@ export async function POST(req: Request) {
   if (!file) return err("file required");
   const bytes = new Uint8Array(await file.arrayBuffer());
   const path = `${user.id}/${crypto.randomUUID()}-${file.name}`;
+  const mime =
+    (file.type || "").trim() ||
+    (file.name.toLowerCase().endsWith(".pdf")
+      ? "application/pdf"
+      : file.name.toLowerCase().endsWith(".docx")
+        ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        : file.name.toLowerCase().endsWith(".doc")
+          ? "application/msword"
+          : "application/octet-stream");
   const up = await sb.storage.from("attachments").upload(path, bytes, {
-    contentType: file.type || "application/octet-stream",
+    contentType: mime,
     upsert: false,
   });
   if (up.error) return err(up.error.message, 500);
   const { data, error } = await sb.from("attachments").insert({
-    user_id: user.id, kind, filename: file.name, mime: file.type,
+    user_id: user.id, kind, filename: file.name, mime,
     size: bytes.length, storage_path: path,
   }).select("id,kind,filename,mime,size").single();
   if (error) return err(error.message, 500);

@@ -34,10 +34,48 @@ export interface OutAttachment {
 }
 
 function b64url(bytes: Uint8Array): string {
-  let bin = "";
-  bytes.forEach((b) => (bin += String.fromCharCode(b)));
-  const b64 = typeof btoa !== "undefined" ? btoa(bin) : Buffer.from(bytes).toString("base64");
+  const b64 = stdBase64Raw(bytes);
   return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Standard base64 (RFC 4648) — required for MIME Content-Transfer-Encoding: base64. */
+function stdBase64Raw(bytes: Uint8Array): string {
+  if (typeof Buffer !== "undefined") return Buffer.from(bytes).toString("base64");
+  let bin = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
+
+/** MIME base64 with 76-char line wraps (RFC 2045). */
+function stdBase64(bytes: Uint8Array): string {
+  const b64 = stdBase64Raw(bytes);
+  return b64.replace(/(.{76})/g, "$1\r\n").replace(/\r\n$/g, "");
+}
+
+function safeFilename(name: string): string {
+  return (name || "attachment")
+    .replace(/[\r\n"\\]/g, "_")
+    .replace(/[^\x20-\x7E]/g, "_")
+    .slice(0, 180) || "attachment";
+}
+
+function guessMime(filename: string): string {
+  const ext = (filename || "").toLowerCase().split(".").pop() || "";
+  const map: Record<string, string> = {
+    pdf: "application/pdf",
+    doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    odt: "application/vnd.oasis.opendocument.text",
+    txt: "text/plain",
+    rtf: "application/rtf",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+  };
+  return map[ext] || "application/octet-stream";
 }
 
 function asciiClean(str: string): string {
@@ -111,11 +149,14 @@ function buildMime(
   push(`To: ${to}\r\nFrom: ${from}\r\nSubject: ${asciiClean(subject)}\r\n`);
   if (replyTo) push(`Reply-To: ${replyTo}\r\n`);
   push(`MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n`);
-  push(`--${boundary}\r\nContent-Type: text/html; charset="UTF-8"\r\n\r\n${renderBody(body)}\r\n`);
+  push(`--${boundary}\r\nContent-Type: text/html; charset="UTF-8"\r\nContent-Transfer-Encoding: 7bit\r\n\r\n${renderBody(body)}\r\n`);
   for (const a of attachments) {
-    push(`--${boundary}\r\nContent-Type: ${a.mime || "application/octet-stream"}; name="${a.filename}"\r\n`);
-    push(`Content-Disposition: attachment; filename="${a.filename}"\r\nContent-Transfer-Encoding: base64\r\n\r\n`);
-    push((typeof Buffer !== "undefined" ? Buffer.from(a.data).toString("base64") : b64url(a.data)) + "\r\n");
+    const mime = (a.mime || "").trim() || guessMime(a.filename);
+    const filename = safeFilename(a.filename);
+    const b64 = stdBase64(a.data);
+    push(`--${boundary}\r\nContent-Type: ${mime}; name="${filename}"\r\n`);
+    push(`Content-Disposition: attachment; filename="${filename}"\r\nContent-Transfer-Encoding: base64\r\n\r\n`);
+    push(b64 + "\r\n");
   }
   push(`--${boundary}--`);
   return b64url(Uint8Array.from(parts));
