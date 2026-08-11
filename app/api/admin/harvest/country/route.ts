@@ -28,7 +28,7 @@ export async function GET(req: Request) {
     .select("openalex_id,name,email,institution,field,country,confidence,last_seen_year", { count: "exact" })
     .eq("country", code)
     .not("email", "is", null);
-  if (name) query = query.ilike("name", `%${name}%`);
+  if (name) query = query.or(`name.ilike.%${name}%,email.ilike.%${name}%`);
   if (university) query = query.ilike("institution", `%${university}%`);
   if (field) query = query.ilike("field", `%${field}%`);
   if (q) query = query.or(`name.ilike.%${q}%,institution.ilike.%${q}%,email.ilike.%${q}%,field.ilike.%${q}%`);
@@ -37,4 +37,38 @@ export async function GET(req: Request) {
   if (error) return err(error.message, 500);
 
   return json({ rows: data || [], total: count || 0, page, pageSize });
+}
+
+/** Admin: update a mined professor's email and/or institution. */
+export async function PATCH(req: Request) {
+  const auth = await requireAdmin();
+  if ("response" in auth) return auth.response;
+
+  const body = await req.json().catch(() => ({} as Record<string, unknown>));
+  const openalexId = String(body.openalex_id || "").trim();
+  if (!openalexId) return err("openalex_id required");
+
+  const patch: Record<string, string> = {};
+  if (typeof body.email === "string") {
+    const email = body.email.trim();
+    if (!email.includes("@")) return err("A valid email is required");
+    patch.email = email;
+  }
+  if (typeof body.institution === "string") {
+    patch.institution = body.institution.trim();
+  }
+  if (!Object.keys(patch).length) return err("Nothing to update");
+
+  patch.updated_at = new Date().toISOString();
+
+  const admin = supabaseAdmin();
+  const { data, error } = await admin
+    .from("professor_emails")
+    .update(patch)
+    .eq("openalex_id", openalexId)
+    .select("openalex_id,name,email,institution,field,country,confidence,last_seen_year")
+    .maybeSingle();
+  if (error) return err(error.message, 500);
+  if (!data) return err("Professor not found", 404);
+  return json(data);
 }

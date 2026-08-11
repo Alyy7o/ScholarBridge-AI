@@ -1234,6 +1234,7 @@ function Professors({ toast }: any) {
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [bucketView, setBucketView] = useState("__all__"); // __all__ | bucket id | __none__
+  const [searchQ, setSearchQ] = useState("");
   const [modal, setModal] = useState<any>(null); // {type:"add"|"edit"|"upload"|"assign"|"confirm", ...}
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -1251,11 +1252,21 @@ function Professors({ toast }: any) {
 
   const isAll = bucketView === "__all__";
   const shown = useMemo(() => {
-    if (isAll) return list;
-    if (bucketView === "__none__") return list.filter((p) => !(p.bucket_ids || []).length);
-    return list.filter((p) => (p.bucket_ids || []).includes(bucketView));
-  }, [list, bucketView, isAll]);
-  useEffect(() => { setPage(1); }, [bucketView]);
+    let rows = list;
+    if (!isAll) {
+      if (bucketView === "__none__") rows = rows.filter((p) => !(p.bucket_ids || []).length);
+      else rows = rows.filter((p) => (p.bucket_ids || []).includes(bucketView));
+    }
+    const q = searchQ.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter((p) =>
+        String(p.name || "").toLowerCase().includes(q) ||
+        String(p.email || "").toLowerCase().includes(q)
+      );
+    }
+    return rows;
+  }, [list, bucketView, isAll, searchQ]);
+  useEffect(() => { setPage(1); }, [bucketView, searchQ]);
   const pageCount = Math.max(1, Math.ceil(shown.length / pageSize));
   const pageC = Math.min(page, pageCount);
   const paged = shown.slice((pageC - 1) * pageSize, pageC * pageSize);
@@ -1289,6 +1300,13 @@ function Professors({ toast }: any) {
       <div className="row" style={{ gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
         <button className="btn sm" onClick={() => setModal({ type: "add" })}>＋ Add professor</button>
         <button className="btn sm sec" onClick={() => setModal({ type: "upload" })}>Upload file</button>
+        <input
+          value={searchQ}
+          onChange={(e) => setSearchQ(e.target.value)}
+          placeholder="Search name or email…"
+          aria-label="Search professors by name or email"
+          style={{ maxWidth: 220, height: 38, padding: "8px 12px" }}
+        />
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <label className="mut tiny" htmlFor="prof-buckets" style={{ margin: 0 }}>Buckets</label>
           <select
@@ -1355,7 +1373,7 @@ function Professors({ toast }: any) {
             <button className="btn sm sec" disabled={pageC >= pageCount} onClick={() => setPage(pageC + 1)}>Next &rarr;</button>
           </div>
         )}
-        </>) : <div className="mut">{isAll ? "No professors yet." : "No professors in this bucket."}</div>}</div>
+        </>) : <div className="mut">{searchQ.trim() ? "No professors match your search." : isAll ? "No professors yet." : "No professors in this bucket."}</div>}</div>
 
       {modal?.type === "add" && <ProfessorFormModal buckets={buckets} onClose={() => setModal(null)} onSaved={closeAndReload} toast={toast} />}
       {modal?.type === "edit" && <ProfessorFormModal initial={modal.prof} buckets={buckets} onClose={() => setModal(null)} onSaved={closeAndReload} toast={toast} />}
@@ -2299,6 +2317,8 @@ function CountryDetail({ code, name, onBack, toast }: any) {
   const [buckets, setBuckets] = useState<any[]>([]);
   const [sel, setSel] = useState<Record<string, any>>({}); // keyed by openalex_id, persists across pages
   const [showAdd, setShowAdd] = useState(false);
+  const [editRow, setEditRow] = useState<any>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => { api("/api/buckets").then(setBuckets).catch(() => {}); }, []);
   useEffect(() => {
     setLoading(true);
@@ -2312,7 +2332,7 @@ function CountryDetail({ code, name, onBack, toast }: any) {
         .catch(() => setLoading(false));
     }, 250);
     return () => clearTimeout(t);
-  }, [code, nameQ, uniQ, fieldQ, page, pageSize]);
+  }, [code, nameQ, uniQ, fieldQ, page, pageSize, reloadKey]);
   const pageCount = d ? Math.max(1, Math.ceil(d.total / d.pageSize)) : 1;
   const rows: any[] = d?.rows || [];
   const toggle = (r: any) => setSel((s) => { const n = { ...s }; if (n[r.openalex_id]) delete n[r.openalex_id]; else n[r.openalex_id] = r; return n; });
@@ -2320,6 +2340,14 @@ function CountryDetail({ code, name, onBack, toast }: any) {
   const toggleAll = () => setSel((s) => { const all = rows.every((r) => s[r.openalex_id]); const n = { ...s }; if (all) { for (const r of rows) delete n[r.openalex_id]; } else { for (const r of rows) n[r.openalex_id] = r; } return n; });
   const selCount = Object.keys(sel).length;
   const onFilter = (setter: (v: string) => void) => (e: any) => { setter(e.target.value); setPage(1); };
+  const onEdited = (updated: any) => {
+    setEditRow(null);
+    setSel((s) => {
+      if (!s[updated.openalex_id]) return s;
+      return { ...s, [updated.openalex_id]: { ...s[updated.openalex_id], ...updated } };
+    });
+    setReloadKey((k) => k + 1);
+  };
   return (
     <>
       <div className="row" style={{ gap: 12, alignItems: "center" }}>
@@ -2329,7 +2357,7 @@ function CountryDetail({ code, name, onBack, toast }: any) {
       <p className="lead">Professors with a found email{d ? ` · ${Number(d.total).toLocaleString()}` : ""}.</p>
       <div className="card">
         <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
-          <input value={nameQ} onChange={onFilter(setNameQ)} placeholder="Professor name…" style={{ maxWidth: 200, height: 38, padding: "8px 12px" }} />
+          <input value={nameQ} onChange={onFilter(setNameQ)} placeholder="Name or email…" style={{ maxWidth: 200, height: 38, padding: "8px 12px" }} aria-label="Search by name or email" />
           <input value={uniQ} onChange={onFilter(setUniQ)} placeholder="University…" style={{ maxWidth: 200, height: 38, padding: "8px 12px" }} />
           <input value={fieldQ} onChange={onFilter(setFieldQ)} placeholder="Topic / field…" style={{ maxWidth: 200, height: 38, padding: "8px 12px" }} />
           <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} className="pagesize" aria-label="Results per page" style={{ marginLeft: "auto" }}>
@@ -2348,7 +2376,7 @@ function CountryDetail({ code, name, onBack, toast }: any) {
         {loading ? <Loader /> : (rows.length ? (
           <div className="table-wrap"><table><thead><tr>
             <th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all" /></th>
-            <th style={{ width: 44 }}>#</th><th>Name</th><th>Email</th><th>University</th><th>Field</th>
+            <th style={{ width: 44 }}>#</th><th>Name</th><th>Email</th><th>University</th><th>Field</th><th style={{ width: 44 }} />
           </tr></thead><tbody>
             {rows.map((r: any, i: number) => (
               <tr key={r.openalex_id}>
@@ -2358,6 +2386,12 @@ function CountryDetail({ code, name, onBack, toast }: any) {
                 <td><a href={`mailto:${r.email}`} className="tiny" style={{ color: "var(--acc2)", wordBreak: "break-all" }}>{r.email}</a></td>
                 <td className="mut">{r.institution || "—"}</td>
                 <td className="mut">{r.field || "—"}</td>
+                <td>
+                  <RowMenu items={[
+                    { label: "Edit email", onClick: () => setEditRow({ ...r, editFocus: "email" }) },
+                    { label: "Edit institution", onClick: () => setEditRow({ ...r, editFocus: "institution" }) },
+                  ]} />
+                </td>
               </tr>
             ))}
           </tbody></table></div>
@@ -2372,7 +2406,57 @@ function CountryDetail({ code, name, onBack, toast }: any) {
       </div>
 
       {showAdd && <AddMinedToBucketModal buckets={buckets} rows={Object.values(sel)} onClose={() => setShowAdd(false)} onDone={() => { setShowAdd(false); setSel({}); }} toast={toast} />}
+      {editRow && <EditMinedProfessorModal row={editRow} onClose={() => setEditRow(null)} onSaved={onEdited} toast={toast} />}
     </>
+  );
+}
+
+function EditMinedProfessorModal({ row, onClose, onSaved, toast }: any) {
+  const [email, setEmail] = useState(row.email || "");
+  const [institution, setInstitution] = useState(row.institution || "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const emailRef = useRef<HTMLInputElement>(null);
+  const instRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const el = row.editFocus === "institution" ? instRef.current : emailRef.current;
+    el?.focus();
+    el?.select();
+  }, [row.editFocus]);
+  const submit = async () => {
+    if (!email.includes("@")) { setError("A valid email is required."); return; }
+    setBusy(true); setError("");
+    try {
+      const updated = await api("/api/admin/harvest/country", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ openalex_id: row.openalex_id, email: email.trim(), institution: institution.trim() }),
+      });
+      toast("Professor updated");
+      onSaved(updated);
+    } catch (e) {
+      setError((e as Error)?.message || "Save failed");
+      setBusy(false);
+    }
+  };
+  return (
+    <ModalShell onClose={onClose} maxWidth={420} title={`Edit · ${row.name || "Professor"}`}>
+      <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+        <div>
+          <label>Email</label>
+          <input ref={emailRef} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@university.edu" />
+        </div>
+        <div>
+          <label>Institution / university</label>
+          <input ref={instRef} value={institution} onChange={(e) => setInstitution(e.target.value)} placeholder="University name" />
+        </div>
+      </div>
+      {error && <div className="tiny" style={{ color: "var(--bad)", marginTop: 10 }}>{error}</div>}
+      <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+        <button className="btn sm sec" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className="btn sm" onClick={submit} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+      </div>
+    </ModalShell>
   );
 }
 
