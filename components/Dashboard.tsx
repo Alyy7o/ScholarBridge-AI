@@ -594,11 +594,13 @@ function MiniCalendar({ selected, onToggle }: { selected: Set<string>; onToggle:
         {cells.map((d, i) => {
           if (d === null) return <div key={i} />;
           const k = iso(y, m, d);
-          const past = new Date(y, m, d) < today;
+          const cellDate = new Date(y, m, d);
+          const past = cellDate < today;
+          const isToday = cellDate.getTime() === today.getTime();
           const on = selected.has(k);
           return (
             <button key={i} type="button" disabled={past} onClick={() => onToggle(k)}
-              style={{ padding: "11px 0", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: past ? "not-allowed" : "pointer", border: "none", background: on ? "var(--acc)" : "transparent", color: on ? "var(--on-acc)" : past ? "#3a4a63" : "var(--ink)", opacity: past ? 0.5 : 1 }}>
+              style={{ padding: "11px 0", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: past ? "not-allowed" : "pointer", border: "none", background: on ? "var(--acc)" : "transparent", color: on ? "var(--on-acc)" : past ? "#3a4a63" : "var(--ink)", opacity: past ? 0.5 : 1, boxShadow: isToday ? "0 0 0 2px var(--acc)" : undefined }}>
               {d}
             </button>
           );
@@ -635,9 +637,41 @@ function Compose({ toast, go }: any) {
   const [aiOff, setAiOff] = useState(false); // true when OPENROUTER_API_KEY isn't set
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [menuIdx, setMenuIdx] = useState<number | null>(null);
+  const [rewritingIdx, setRewritingIdx] = useState<number | null>(null);
 
   const patchEmail = (i: number, patch: any) => setPreview((p) => p.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
-  const removeEmail = (i: number) => { setPreview((p) => p.filter((_, idx) => idx !== i)); setEditIdx(null); };
+  const removeEmail = (i: number) => { setPreview((p) => p.filter((_, idx) => idx !== i)); setEditIdx(null); if (rewritingIdx === i) setRewritingIdx(null); };
+
+  const rewriteEmail = async (i: number) => {
+    const e = preview[i];
+    if (!e || rewritingIdx !== null) return;
+    setRewritingIdx(i); setMenuIdx(null); setStatus("Rewriting…");
+    try {
+      const j = await api("/api/compose/rewrite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          professor_name: e.professor_name || "",
+          email: e.email || "",
+          university: e.university || "",
+          topics: e.topics || "",
+          search_topics: searchTopics,
+          tone,
+          template_id: tplId,
+          subject: subj,
+          papers_used: e.papers_used || [],
+        }),
+      });
+      if (j.email) patchEmail(i, j.email);
+      setAiOff(j.ai_enabled === false);
+      setStatus("Rewritten with new papers");
+      toast?.("Email rewritten");
+    } catch (err: any) {
+      setStatus("Error: " + err.message);
+      toast?.("Rewrite failed: " + err.message);
+    }
+    setRewritingIdx(null);
+  };
 
   // Reload the dropdown lists (templates / buckets / professors / attachments).
   const loadLists = () => {
@@ -784,14 +818,16 @@ function Compose({ toast, go }: any) {
                 <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                   <b>{e.professor_name || e.email || "(no recipient)"}</b>
                   <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                    {rewritingIdx === i && <span className="mut tiny">Rewriting…</span>}
                     {editIdx === i && <button className="btn sm" onClick={() => setEditIdx(null)}>Done</button>}
                     <div style={{ position: "relative" }}>
-                      <button className="kebab" aria-label="More actions" onClick={() => setMenuIdx(menuIdx === i ? null : i)}>⋮</button>
+                      <button className="kebab" aria-label="More actions" disabled={rewritingIdx === i} onClick={() => setMenuIdx(menuIdx === i ? null : i)}>⋮</button>
                       {menuIdx === i && (
                         <>
                           <div className="menu-backdrop" onClick={() => setMenuIdx(null)} />
                           <div className="menu">
                             <button onClick={() => { setEditIdx(i); setMenuIdx(null); }}>Edit</button>
+                            {mode === "ai" && <button onClick={() => rewriteEmail(i)} disabled={rewritingIdx !== null}>Rewrite</button>}
                             <button className="danger" onClick={() => { removeEmail(i); setMenuIdx(null); }}>Delete</button>
                           </div>
                         </>
@@ -1393,6 +1429,7 @@ function Templates({ toast }: any) {
   const [ed, setEd] = useState<any>({ name: "", subject: "", body: "" });
   const [loading, setLoading] = useState(true);
   const [varsOpen, setVarsOpen] = useState(false);
+  const [confirmDel, setConfirmDel] = useState<{ id: string; name: string } | null>(null);
   const load = () => api("/api/templates").then((x) => { setList(x); setLoading(false); });
   useEffect(() => { load(); }, []);
   const save = async () => { if (!ed.name) { toast("Name required"); return; } await api("/api/templates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(ed) }); toast("Saved"); setEd({ name: "", subject: "", body: "" }); load(); };
@@ -1432,9 +1469,17 @@ function Templates({ toast }: any) {
         </div>
         <div className="card"><b>Library ({list.length})</b>{loading && <Loader />}
           {list.map((t) => (<div className="emailrow" key={t.id}><div className="row" style={{ justifyContent: "space-between" }}><b>{t.name}</b>{t.is_default && <span className="pill on">default</span>}</div>
-            <div className="mut tiny">{t.subject}</div><div className="row" style={{ marginTop: 8 }}><button className="btn sm sec" onClick={() => setEd(t)}>Edit</button><button className="btn sm danger" onClick={() => del(t.id)}>Delete</button></div></div>))}
+            <div className="mut tiny">{t.subject}</div><div className="row" style={{ marginTop: 8 }}><button className="btn sm sec" onClick={() => setEd(t)}>Edit</button><button className="btn sm danger" onClick={() => setConfirmDel({ id: t.id, name: t.name })}>Delete</button></div></div>))}
         </div>
       </div>
+      {confirmDel && (
+        <ConfirmModal
+          title="Delete template?"
+          message={`Remove "${confirmDel.name}"? This can't be undone.`}
+          onConfirm={async () => { await del(confirmDel.id); setConfirmDel(null); toast("Deleted"); }}
+          onClose={() => setConfirmDel(null)}
+        />
+      )}
     </>
   );
 }
@@ -1469,17 +1514,38 @@ function Attachments({ toast }: any) {
 }
 
 /* ---------- History ---------- */
-function RowMenu({ items }: { items: Array<{ label: string; onClick: () => void; danger?: boolean }> }) {
+function RowMenu({ items, dropUp = false }: { items: Array<{ label: string; onClick: () => void; danger?: boolean }>; dropUp?: boolean }) {
   const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; right: number } | null>(null);
+
+  const toggle = () => {
+    if (open) { setOpen(false); setPos(null); return; }
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const right = Math.max(8, window.innerWidth - r.right);
+    if (dropUp) {
+      setPos({ bottom: Math.max(8, window.innerHeight - r.top + 4), right });
+    } else {
+      setPos({ top: r.bottom + 4, right });
+    }
+    setOpen(true);
+  };
+
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
-      <button type="button" className="btn sm sec" style={{ padding: "5px 11px", fontSize: 17, lineHeight: 1 }} aria-label="Actions" onClick={() => setOpen((o) => !o)}>⋯</button>
-      {open && (
+      <button ref={btnRef} type="button" className="btn sm sec" style={{ padding: "5px 11px", fontSize: 17, lineHeight: 1 }} aria-label="Actions" onClick={toggle}>⋯</button>
+      {open && pos && (
         <>
-          <button type="button" aria-hidden className="tpf-backdrop" onClick={() => setOpen(false)} />
-          <div style={{ position: "absolute", right: 0, top: "100%", marginTop: 4, zIndex: 30, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 8, minWidth: 150, boxShadow: "0 12px 30px rgba(0,0,0,.45)", overflow: "hidden" }}>
+          <button type="button" aria-hidden className="tpf-backdrop" onClick={() => { setOpen(false); setPos(null); }} />
+          <div style={{
+            position: "fixed", zIndex: 80, right: pos.right,
+            ...(pos.bottom != null ? { bottom: pos.bottom } : { top: pos.top }),
+            background: "var(--card)", border: "1px solid var(--line)", borderRadius: 8, minWidth: 150,
+            boxShadow: "0 12px 30px rgba(0,0,0,.45)", overflow: "hidden",
+          }}>
             {items.map((it, i) => (
-              <button key={i} type="button" onClick={() => { setOpen(false); it.onClick(); }} onMouseEnter={(ev) => (ev.currentTarget.style.background = "var(--field)")} onMouseLeave={(ev) => (ev.currentTarget.style.background = "transparent")} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 13px", background: "transparent", border: "none", color: it.danger ? "#fecaca" : "var(--ink)", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{it.label}</button>
+              <button key={i} type="button" onClick={() => { setOpen(false); setPos(null); it.onClick(); }} onMouseEnter={(ev) => (ev.currentTarget.style.background = "var(--field)")} onMouseLeave={(ev) => (ev.currentTarget.style.background = "transparent")} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 13px", background: "transparent", border: "none", color: it.danger ? "#fecaca" : "var(--ink)", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{it.label}</button>
             ))}
           </div>
         </>
@@ -1697,6 +1763,8 @@ function History({ toast }: any) {
                   const k = `${cy}-${String(cm + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
                   const n = countsByDay[k] || 0;
                   const on = dayKey === k;
+                  const today = new Date();
+                  const isToday = today.getFullYear() === cy && today.getMonth() === cm && today.getDate() === d;
                   return (
                     <button
                       key={k}
@@ -1706,6 +1774,7 @@ function History({ toast }: any) {
                         minHeight: 64, borderRadius: 10, border: on ? "1px solid var(--acc)" : "1px solid var(--line)",
                         background: on ? "rgba(34,211,238,.12)" : "var(--field)", color: "var(--ink)",
                         cursor: "pointer", padding: "8px 6px", textAlign: "left",
+                        boxShadow: isToday ? "0 0 0 2px var(--acc)" : undefined,
                       }}
                     >
                       <div style={{ fontWeight: 700, fontSize: 13 }}>{d}</div>
@@ -1797,7 +1866,7 @@ function DayEmailsModal({
                   <td><b>{e.professor_name || e.email}</b><div className="mut tiny">{e.email}</div></td>
                   <td>{e.subject}{e.error && <div className="tiny" style={{ color: "var(--bad)" }}>{e.error}</div>}</td>
                   <td><span className={`pill ${e.status}`}>{e.status}</span></td>
-                  <td><RowMenu items={emailMenuItems(e)} /></td>
+                  <td><RowMenu dropUp items={emailMenuItems(e)} /></td>
                 </tr>
               ))}
             </tbody>
@@ -1958,7 +2027,9 @@ function FindProfessors({ toast }: any) {
   const [detail, setDetail] = useState<any>(null);
   const [adding, setAdding] = useState(false);
   const [needsEmail, setNeedsEmail] = useState<any[]>([]);
+  const [manualEmails, setManualEmails] = useState<Record<string, string>>({});
   const [onlyEmail, setOnlyEmail] = useState(false);
+  const [facultyOnly, setFacultyOnly] = useState(true);
   const [buckets, setBuckets] = useState<any[]>([]);
   const [addBucket, setAddBucket] = useState("");
   const [newName, setNewName] = useState("");
@@ -1981,17 +2052,18 @@ function FindProfessors({ toast }: any) {
     return () => { alive = false; };
   }, [country]);
 
-  const search = async (p = 1, conceptOverride?: Array<{ id: string; label: string; kind?: "topic" | "subfield"; match?: string }>) => {
+  const search = async (p = 1, conceptOverride?: Array<{ id: string; label: string; kind?: "topic" | "subfield"; match?: string }>, facultyOverride?: boolean) => {
     const cs = conceptOverride ?? concepts;
+    const fo = facultyOverride ?? facultyOnly;
     if (!country && !inst.id && !cs.length && !query.trim()) { setStatus("Pick at least one filter"); return; }
-    setBusy(true); setStatus("Searching…"); setPage(p);
+    setBusy(true); setStatus("Searching…"); setPage(p); setNeedsEmail([]); setManualEmails({});
     try {
       const j = await api("/api/professors/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
         country, institutionId: inst.id, institutionLabel: inst.label,
         conceptIds: cs.filter((c) => c.kind !== "subfield").map((c) => c.id),
         subfieldIds: cs.filter((c) => c.kind === "subfield").map((c) => c.id),
         conceptLabels: cs.map((c) => c.match || c.label), // match mined "field" on the real subfield name
-        query, page: p,
+        query, page: p, faculty_only: fo,
       }) });
       const rows = j.results || [];
       setResults(rows); setTotal(j.total || 0);
@@ -2000,7 +2072,7 @@ function FindProfessors({ toast }: any) {
       let withEmail = 0;
       for (const r of rows) if (r.email) { seeded[r.openalex_id] = { loading: false, email: r.email }; withEmail++; }
       setEmails(seeded);
-      setStatus(`${j.total} researcher(s) found${withEmail ? ` · ${withEmail} with email on this page` : ""}`);
+      setStatus(`${rows.length} ${fo ? "faculty" : "researcher"}(s) found${withEmail ? ` · ${withEmail} with email on this page` : ""}`);
     } catch (e: any) { setStatus("Error: " + e.message); }
     setBusy(false);
   };
@@ -2030,13 +2102,18 @@ function FindProfessors({ toast }: any) {
     }
   };
   const selCount = Object.keys(sel).length;
+  const needsKey = (p: any) => `${p.name || ""}::${p.institution || ""}`;
   const addSelected = async () => {
     if (!selCount) return;
     setAdding(true); setStatus("Adding & finding emails from their papers…");
+    const payload = Object.values(sel).map((r: any) => ({
+      ...r,
+      email: r.email || emails[r.openalex_id]?.email || undefined,
+    }));
     try {
-      const j = await api("/api/professors/add-from-search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ professors: Object.values(sel), ...bucketFields() }) });
+      const j = await api("/api/professors/add-from-search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ professors: payload, ...bucketFields() }) });
       toast(`Added ${j.added}${j.duplicates ? `, ${j.duplicates} dup` : ""}`);
-      setNeedsEmail(j.needsEmail || []); setSel({}); setNewName("");
+      setNeedsEmail(j.needsEmail || []); setManualEmails({}); setSel({}); setNewName("");
       api("/api/buckets").then(setBuckets).catch(() => {}); // refresh counts / new bucket
       setStatus(`Added ${j.added}. ${(j.needsEmail || []).length} need an email.`);
     } catch (e: any) { setStatus("Error: " + e.message); }
@@ -2044,9 +2121,17 @@ function FindProfessors({ toast }: any) {
   };
   const addManual = async (p: any, email: string) => {
     if (!email.includes("@")) { toast("Valid email required"); return; }
+    const key = needsKey(p);
     await api("/api/professors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: p.name, email, university: p.institution || "", topics: p.topics || "", ...bucketFields() }) });
-    toast("Added"); setNeedsEmail((list) => list.filter((x) => x !== p));
+    toast("Added");
+    setManualEmails((m) => { const n = { ...m }; delete n[key]; return n; });
+    setNeedsEmail((list) => list.filter((x) => x !== p));
     api("/api/buckets").then(setBuckets).catch(() => {});
+  };
+  const removeNeedsEmail = (p: any) => {
+    const key = needsKey(p);
+    setManualEmails((m) => { const n = { ...m }; delete n[key]; return n; });
+    setNeedsEmail((list) => list.filter((x) => x !== p));
   };
 
   return (
@@ -2085,7 +2170,23 @@ function FindProfessors({ toast }: any) {
           </div>
           <div><label>Professor name (optional)</label><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter by professor name" /><div className="mut tiny" style={{ marginTop: 6 }}>Searches names only — use Field of research above for topics.</div></div>
         </div>
-        <div className="row" style={{ marginTop: 14 }}><button className="btn" disabled={busy} onClick={() => search(1)}>Search</button><span className="mut">{status}</span></div>
+        <div className="row" style={{ marginTop: 14, flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+          <button className="btn" disabled={busy} onClick={() => search(1)}>Search</button>
+          <label className="chk" style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }} title="Hides students, postdocs, and industry researchers when possible. Based on affiliation titles and publication seniority — not perfect.">
+            <input
+              type="checkbox"
+              checked={facultyOnly}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setFacultyOnly(on);
+                if (results.length || country || inst.id || concepts.length || query.trim()) search(1, undefined, on);
+              }}
+            />
+            Faculty only
+          </label>
+          <span className="mut">{status}</span>
+        </div>
+        <div className="mut tiny" style={{ marginTop: 8 }}>Faculty only hides students, postdocs, and industry researchers when titles or seniority signals allow — not perfect.</div>
       </div>
 
       {selCount > 0 && (
@@ -2107,13 +2208,22 @@ function FindProfessors({ toast }: any) {
         <div className="card">
           <b>No email found for {needsEmail.length} — add manually</b>
           <div className="mut tiny" style={{ margin: "4px 0 10px" }}>We couldn&apos;t find a corresponding-author email in their open-access papers. Enter it to add them.</div>
-          {needsEmail.map((p, i) => (
-            <div className="row" key={i} style={{ marginBottom: 8 }}>
-              <div style={{ flex: 1, minWidth: 160 }}><b>{p.name}</b><div className="mut tiny">{p.institution}</div></div>
-              <input id={`ne_${i}`} placeholder="email@university.edu" style={{ maxWidth: 240 }} />
-              <button className="btn sm" onClick={() => addManual(p, (document.getElementById(`ne_${i}`) as HTMLInputElement)?.value || "")}>Add</button>
-            </div>
-          ))}
+          {needsEmail.map((p) => {
+            const key = needsKey(p);
+            return (
+              <div className="row" key={key} style={{ marginBottom: 8 }}>
+                <div style={{ flex: 1, minWidth: 160 }}><b>{p.name}</b><div className="mut tiny">{p.institution}</div></div>
+                <input
+                  value={manualEmails[key] || ""}
+                  onChange={(e) => setManualEmails((m) => ({ ...m, [key]: e.target.value }))}
+                  placeholder="email@university.edu"
+                  style={{ maxWidth: 240 }}
+                />
+                <button className="btn sm" onClick={() => addManual(p, manualEmails[key] || "")}>Add</button>
+                <button className="btn sm danger" onClick={() => removeNeedsEmail(p)}>Remove</button>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -2122,7 +2232,7 @@ function FindProfessors({ toast }: any) {
         return (
           <>
             <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
-              <span className="mut tiny">{shown.length} shown{onlyEmail ? " · with email" : ""}</span>
+              <span className="mut tiny">{shown.length} shown{onlyEmail ? " · with email" : ""}{facultyOnly ? " · faculty filter on" : ""}</span>
               <label className="chk" style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }}>
                 <input type="checkbox" checked={onlyEmail} onChange={(e) => setOnlyEmail(e.target.checked)} /> Only professors with an email
               </label>
@@ -2138,6 +2248,8 @@ function FindProfessors({ toast }: any) {
                     <td>
                       <b>{r.name}</b>
                       {r.source === "cache" ? <span className="pill sent" style={{ marginLeft: 6, fontSize: 10 }}>mined</span> : null}
+                      {r.faculty_confidence === "professor" ? <span className="pill on" style={{ marginLeft: 6, fontSize: 10 }}>Professor</span> : null}
+                      {r.faculty_confidence === "likely_faculty" ? <span className="pill draft" style={{ marginLeft: 6, fontSize: 10 }}>Likely faculty</span> : null}
                       {r.orcid ? <div className="mut tiny">ORCID {r.orcid}</div> : null}
                     </td>
                     <td>{r.institution || "—"}</td>

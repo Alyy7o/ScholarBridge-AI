@@ -1,6 +1,7 @@
 import { requireUser, supabaseAdmin } from "@/lib/supabase";
 import { json, err } from "@/lib/http";
 import { searchAuthors } from "@/lib/discover";
+import { isLikelyFacultyCacheRow } from "@/lib/facultyFilter";
 
 export const maxDuration = 30;
 
@@ -9,6 +10,7 @@ export async function POST(req: Request) {
   const { user } = await requireUser();
   if (!user) return err("Unauthorized", 401);
   const b = await req.json().catch(() => ({}));
+  const facultyOnly = b.faculty_only !== false && b.facultyOnly !== false;
   try {
     const { results, total, debug } = await searchAuthors({
       country: String(b.country || "").trim() || undefined,
@@ -18,6 +20,7 @@ export async function POST(req: Request) {
       subfieldIds: Array.isArray(b.subfieldIds) ? b.subfieldIds.map((x: any) => String(x)).filter(Boolean) : undefined,
       query: String(b.query || "").trim() || undefined,
       page: Number(b.page) || 1,
+      facultyOnly,
     });
 
     // Attach any emails we already harvested — one batch lookup, so the table
@@ -73,6 +76,7 @@ export async function POST(req: Request) {
       const { data: mined } = await qb;
       const extra = (mined || [])
         .filter((c: any) => c.openalex_id && !present.has(c.openalex_id))
+        .filter((c: any) => !facultyOnly || isLikelyFacultyCacheRow(c))
         .map((c: any) => ({
           openalex_id: c.openalex_id,
           name: c.name || "",
@@ -85,11 +89,12 @@ export async function POST(req: Request) {
           email: c.email,
           email_confidence: c.confidence,
           source: "cache",
+          faculty_confidence: "likely_faculty" as const,
         }));
       if (extra.length) (results as any[]).unshift(...extra);
     }
 
-    return json({ results, total, debug });
+    return json({ results, total, debug, faculty_only: facultyOnly });
   } catch (e) {
     return err((e as Error).message || "Search failed", 502);
   }

@@ -37,10 +37,9 @@ export async function addMembers(
   professorIds: string[],
 ): Promise<void> {
   if (!bucketId || !professorIds.length) return;
-  const rows = professorIds
-    .filter(Boolean)
-    .map((professor_id) => ({ bucket_id: bucketId, professor_id, user_id: userId }));
-  if (!rows.length) return;
+  const uniqueIds = [...new Set(professorIds.filter(Boolean))];
+  if (!uniqueIds.length) return;
+  const rows = uniqueIds.map((professor_id) => ({ bucket_id: bucketId, professor_id, user_id: userId }));
   await sb.from("professor_bucket_members").upsert(rows, { onConflict: "bucket_id,professor_id" });
 }
 

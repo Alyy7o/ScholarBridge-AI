@@ -3,6 +3,12 @@
 // (no scholarly API exposes emails directly).
 
 import { isPlausibleEmail, domainHasMx } from "./harvest";
+import {
+  collectWorkAuthorshipSignal,
+  isLikelyFaculty,
+  type FacultySignals,
+  MIN_WORKS_FACULTY,
+} from "./facultyFilter";
 
 const OPENALEX = "https://api.openalex.org";
 
@@ -29,6 +35,8 @@ export type AuthorHit = {
   topics: string;
   works_count: number;
   cited_by_count: number;
+  /** Present when faculty_only filtering ran. */
+  faculty_confidence?: "professor" | "likely_faculty";
 };
 
 export type AutocompleteItem = { id: string; label: string; hint?: string };
@@ -108,6 +116,8 @@ export type SearchFilters = {
   query?: string;          // free-text name/keyword
   page?: number;
   perPage?: number;
+  /** Drop students, postdocs, and industry researchers when possible. Default true at API. */
+  facultyOnly?: boolean;
 };
 
 /** Resolve a field name (e.g. "Artificial Intelligence") to its OpenAlex
@@ -142,6 +152,80 @@ function toHits(arr: any[]): AuthorHit[] {
   });
 }
 
+type AccSignal = {
+  texts: string[];
+  types: string[];
+  corresponding: number;
+  lastAuthor: number;
+  firstAuthor: number;
+  otherAuthor: number;
+  institution: string;
+  country: string;
+};
+
+function emptyAcc(institution = "", country = ""): AccSignal {
+  return { texts: [], types: [], corresponding: 0, lastAuthor: 0, firstAuthor: 0, otherAuthor: 0, institution, country };
+}
+
+function mergeAuthorshipIntoAcc(acc: AccSignal, au: any, matchedInst?: any) {
+  const sig = collectWorkAuthorshipSignal(au);
+  for (const t of sig.rawAffiliations) acc.texts.push(t);
+  for (const ty of sig.institutionTypes) acc.types.push(ty);
+  if (matchedInst?.type) acc.types.push(String(matchedInst.type).toLowerCase());
+  if (sig.isCorresponding) acc.corresponding++;
+  if (sig.authorPosition === "last") acc.lastAuthor++;
+  else if (sig.authorPosition === "first") acc.firstAuthor++;
+  else acc.otherAuthor++;
+}
+
+function signalsFromAuthorAndAcc(author: any, acc?: AccSignal): FacultySignals {
+  const lastKnown = author?.last_known_institutions || (author?.last_known_institution ? [author.last_known_institution] : []);
+  const types = [
+    ...(acc?.types || []),
+    ...lastKnown.map((i: any) => String(i?.type || "").toLowerCase()).filter(Boolean),
+  ];
+  const texts = [...(acc?.texts || [])];
+  // Also scan display names of institutions in case titles appear nowhere else
+  for (const i of lastKnown) {
+    if (i?.display_name) texts.push(String(i.display_name));
+  }
+  const first = acc?.firstAuthor || 0;
+  const last = acc?.lastAuthor || 0;
+  const other = acc?.otherAuthor || 0;
+  const corresponding = acc?.corresponding || 0;
+  return {
+    affiliationTexts: texts,
+    institutionTypes: types,
+    worksCount: author?.works_count || 0,
+    citedByCount: author?.cited_by_count || 0,
+    correspondingCount: corresponding,
+    lastAuthorCount: last,
+    firstAuthorOnly: first > 0 && last === 0 && other === 0 && corresponding === 0,
+  };
+}
+
+function applyFacultyFilter(
+  authors: any[],
+  accById: Record<string, AccSignal>,
+  facultyOnly: boolean,
+): AuthorHit[] {
+  const hits = toHits(authors);
+  if (!facultyOnly) return hits;
+  const out: AuthorHit[] = [];
+  for (let i = 0; i < authors.length; i++) {
+    const a = authors[i];
+    const h = hits[i];
+    if (!h?.openalex_id) continue;
+    const verdict = isLikelyFaculty(signalsFromAuthorAndAcc(a, accById[h.openalex_id]));
+    if (!verdict.keep) continue;
+    out.push({
+      ...h,
+      faculty_confidence: verdict.confidence === "professor" ? "professor" : "likely_faculty",
+    });
+  }
+  return out;
+}
+
 /** OpenAlex subfield IDs from an author's topic list (short form, e.g. "1702"). */
 function authorSubfieldIds(author: any): string[] {
   const topics = author?.topics || [];
@@ -170,6 +254,9 @@ export async function searchAuthors(f: SearchFilters): Promise<{ results: Author
   const conceptIds = (f.conceptIds && f.conceptIds.length ? f.conceptIds : f.conceptId ? [f.conceptId] : []).filter(Boolean);
   const subfieldIds = (f.subfieldIds || []).filter(Boolean);
   const country = (f.country || "").toLowerCase();
+  const facultyOnly = f.facultyOnly !== false;
+  const candidateCap = facultyOnly ? 80 : 50;
+  const returnCap = facultyOnly ? 50 : 50;
 
   // When a university and/or field is chosen, resolve people via the WORKS index
   // (works are reliably tagged with institution AND topic) then pull the distinct
@@ -192,12 +279,14 @@ export async function searchAuthors(f: SearchFilters): Promise<{ results: Author
       filter: wf.join(","),
       sort: "cited_by_count:desc",
       per_page: "120",
+      // Full authorships include raw_affiliation_strings, author_position, is_corresponding, institution type
       select: "authorships,cited_by_count",
     };
     if (f.query && f.query.trim()) wparams.search = f.query.trim();
     const works = await oaJson(oaUrl("/works", wparams));
     const ids: string[] = [];
     const seen = new Set<string>();
+    const accById: Record<string, AccSignal> = {};
     // Remember the institution that actually MATCHED the filter for each author,
     // so the row shows that university/country (not their possibly-different
     // current last-known institution).
@@ -212,28 +301,41 @@ export async function searchAuthors(f: SearchFilters): Promise<{ results: Author
             : insts[0];
         if (!hit) continue;
         const aid = String(au.author?.id || "").split("/").pop() || "";
-        if (!aid || seen.has(aid)) continue;
+        if (!aid) continue;
+        if (!accById[aid]) {
+          accById[aid] = emptyAcc(hit.display_name || "", hit.country_code || "");
+          matched[aid] = { institution: hit.display_name || "", country: hit.country_code || "" };
+        }
+        mergeAuthorshipIntoAcc(accById[aid], au, hit);
+        if (seen.has(aid)) continue;
         seen.add(aid);
         ids.push(aid);
-        matched[aid] = { institution: hit.display_name || "", country: hit.country_code || "" };
       }
-      if (ids.length >= 50) break;
+      if (ids.length >= candidateCap) break;
     }
     if (!ids.length) return { results: [], total: 0, debug: { filter: wparams.filter, search: wparams.search || "" } };
-    const ad = await oaJson(oaUrl("/authors", {
-      filter: `ids.openalex:${ids.slice(0, 50).join("|")}`,
-      per_page: "50",
-      select: "id,display_name,orcid,last_known_institutions,topics,works_count,cited_by_count",
-    }));
+
+    // OpenAlex allows up to 50 ids per filter request — batch if needed.
+    const authorRows: any[] = [];
+    for (let i = 0; i < ids.length; i += 50) {
+      const chunk = ids.slice(i, i + 50);
+      const ad = await oaJson(oaUrl("/authors", {
+        filter: `ids.openalex:${chunk.join("|")}`,
+        per_page: "50",
+        select: "id,display_name,orcid,last_known_institutions,topics,works_count,cited_by_count",
+      }));
+      authorRows.push(...(ad.results || []));
+    }
     // Drop faculty whose own topic subfields never overlap the selected area
     // (e.g. bio primary who only coauthored one AI-tagged paper).
-    const authorRows = filterAuthorsBySubfield(ad.results || [], subfieldIds);
-    const results = toHits(authorRows)
+    const filteredRows = filterAuthorsBySubfield(authorRows, subfieldIds);
+    const results = applyFacultyFilter(filteredRows, accById, facultyOnly)
       .map((h) => {
         const m = matched[h.openalex_id];
         return m ? { ...h, institution: m.institution || h.institution, country: m.country || h.country } : h;
       })
-      .sort((a, b) => b.cited_by_count - a.cited_by_count);
+      .sort((a, b) => b.cited_by_count - a.cited_by_count)
+      .slice(0, returnCap);
     return { results, total: results.length, debug: { filter: wparams.filter, search: wparams.search || "" } };
   }
 
@@ -245,11 +347,16 @@ export async function searchAuthors(f: SearchFilters): Promise<{ results: Author
   };
   const filters: string[] = [];
   if (country) filters.push(`last_known_institutions.country_code:${country}`);
+  if (facultyOnly) {
+    filters.push(`last_known_institutions.type:education`);
+    filters.push(`works_count:>${MIN_WORKS_FACULTY - 1}`);
+  }
   if (filters.length) params.filter = filters.join(",");
   if (f.query && f.query.trim()) params.search = f.query.trim();
   if (!params.filter && !params.search) return { results: [], total: 0, debug: { filter: "", search: "" } };
   const data = await oaJson(oaUrl("/authors", params));
-  const results = toHits(data.results || []);
+  const accById: Record<string, AccSignal> = {};
+  const results = applyFacultyFilter(data.results || [], accById, facultyOnly);
   return { results, total: data.meta?.count || results.length, debug: { filter: params.filter || "", search: params.search || "" } };
 }
 

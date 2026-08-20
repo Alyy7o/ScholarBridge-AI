@@ -22,7 +22,28 @@ async function j(url: string): Promise<any> {
   return r.json();
 }
 
-async function openalex(name: string, university: string, limit: number, topics = ""): Promise<Paper[]> {
+function normTitle(t: string): string {
+  return String(t || "")
+    .toLowerCase()
+    .replace(/<[^>]*>/g, "")
+    .replace(/[^\w\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export type FindPapersOpts = {
+  excludeTitles?: string[];
+  page?: number;
+  fetchLimit?: number;
+};
+
+async function openalex(
+  name: string,
+  university: string,
+  limit: number,
+  topics = "",
+  opts: FindPapersOpts = {},
+): Promise<Paper[]> {
   const mailto = process.env.OPENALEX_MAILTO || "you@example.com";
   const a = await j(`${OPENALEX}/authors?search=${encodeURIComponent(name)}&per_page=10&mailto=${mailto}`);
   const authors = a.results || [];
@@ -38,7 +59,10 @@ async function openalex(name: string, university: string, limit: number, topics 
   }
   const id = (chosen.id || "").split("/").pop();
   if (!id) return [];
-  const base = `${OPENALEX}/works?filter=authorships.author.id:${id}&per_page=${limit}&mailto=${mailto}`;
+
+  const fetchLimit = Math.max(limit, opts.fetchLimit || limit);
+  const page = Math.max(1, opts.page || 1);
+  const base = `${OPENALEX}/works?filter=authorships.author.id:${id}&per_page=${fetchLimit}&page=${page}&mailto=${mailto}`;
   const toPapers = (arr: any[]): Paper[] =>
     (arr || [])
       .map((x: any): Paper => ({
@@ -49,23 +73,33 @@ async function openalex(name: string, university: string, limit: number, topics 
       }))
       .filter((p: Paper) => p.title);
 
+  const exclude = new Set((opts.excludeTitles || []).map(normTitle).filter(Boolean));
+  const filterExcluded = (papers: Paper[]) =>
+    exclude.size ? papers.filter((p) => !exclude.has(normTitle(p.title))) : papers;
+
   // If topics are given, search the author's works for those topics first;
   // otherwise (or if nothing matches) fall back to their most recent works.
   const topic = (topics || "").trim();
   if (topic) {
     const wt = await j(`${base}&search=${encodeURIComponent(topic)}`);
-    const matched = toPapers(wt.results || []);
+    const matched = filterExcluded(toPapers(wt.results || [])).slice(0, limit);
     if (matched.length) return matched;
   }
   const w = await j(`${base}&sort=publication_date:desc`);
-  return toPapers(w.results || []);
+  return filterExcluded(toPapers(w.results || [])).slice(0, limit);
 }
 
-async function semanticScholar(name: string, limit: number): Promise<Paper[]> {
+async function semanticScholar(
+  name: string,
+  limit: number,
+  opts: FindPapersOpts = {},
+): Promise<Paper[]> {
+  const fetchLimit = Math.max(limit, opts.fetchLimit || limit);
   const s = await j(`${SEMANTIC}/author/search?query=${encodeURIComponent(name)}&fields=name,paperCount&limit=5`);
   const id = (s.data || [])[0]?.authorId;
   if (!id) return [];
-  const p = await j(`${SEMANTIC}/author/${id}/papers?fields=title,abstract,year&limit=${limit}`);
+  const p = await j(`${SEMANTIC}/author/${id}/papers?fields=title,abstract,year&limit=${fetchLimit}`);
+  const exclude = new Set((opts.excludeTitles || []).map(normTitle).filter(Boolean));
   return (p.data || [])
     .map((x: any): Paper => ({
       title: stripHtml(x.title || ""),
@@ -74,6 +108,7 @@ async function semanticScholar(name: string, limit: number): Promise<Paper[]> {
       source: "semantic_scholar",
     }))
     .filter((x: Paper) => x.title)
+    .filter((x: Paper) => !exclude.size || !exclude.has(normTitle(x.title)))
     .sort((a: Paper, b: Paper) => (b.year || 0) - (a.year || 0))
     .slice(0, limit);
 }
@@ -83,13 +118,14 @@ export async function findPapers(
   university = "",
   limit = 4,
   topics = "",
+  opts: FindPapersOpts = {},
 ): Promise<{ papers: Paper[]; source: string }> {
   try {
-    const papers = await openalex(name, university, limit, topics);
+    const papers = await openalex(name, university, limit, topics, opts);
     if (papers.length) return { papers, source: "openalex" };
   } catch { /* fall through */ }
   try {
-    const papers = await semanticScholar(name, limit);
+    const papers = await semanticScholar(name, limit, opts);
     if (papers.length) return { papers, source: "semantic_scholar" };
   } catch { /* fall through */ }
   return { papers: [], source: "none" };

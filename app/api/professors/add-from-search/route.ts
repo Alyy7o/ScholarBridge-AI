@@ -10,19 +10,22 @@ type Incoming = {
   name?: string;
   institution?: string;
   topics?: string;
+  email?: string;
 };
 
+const MAX_BATCH = 100;
+
 /**
- * Add selected search results to the professors list. Emails aren't provided by
- * any research API, so we scrape a best-effort corresponding-author email from
- * each professor's open-access papers. Professors with no discoverable email are
- * returned to the client so the user can add them manually.
+ * Add selected search results to the professors list. Prefer a client-provided
+ * email (already mined/cached in search). Otherwise scrape a best-effort
+ * corresponding-author email from open-access papers. Professors with no
+ * discoverable email are returned so the user can add them manually.
  */
 export async function POST(req: Request) {
   const { sb, user } = await requireUser();
   if (!user) return err("Unauthorized", 401);
   const body = await req.json().catch(() => ({}));
-  const profs: Incoming[] = Array.isArray(body.professors) ? body.professors.slice(0, 15) : [];
+  const profs: Incoming[] = Array.isArray(body.professors) ? body.professors.slice(0, MAX_BATCH) : [];
   if (!profs.length) return err("No professors selected");
 
   const bucketId = await ensureBucketId(sb, user.id, { bucketId: body.bucket_id, bucketName: body.bucket_name });
@@ -34,8 +37,8 @@ export async function POST(req: Request) {
   for (const p of profs) {
     const name = String(p.name || "").trim();
     if (!name) continue;
-    let email: string | null = null;
-    if (p.openalex_id) {
+    let email: string | null = String(p.email || "").trim() || null;
+    if (!email && p.openalex_id) {
       try {
         const r = await harvestForAuthor(supabaseAdmin(), p.openalex_id, name);
         email = r.email;
@@ -64,6 +67,6 @@ export async function POST(req: Request) {
     else { added++; if (ins) memberIds.push(ins.id); }
   }
 
-  await addMembers(sb, user.id, bucketId, memberIds); // file everyone found into the bucket
+  await addMembers(sb, user.id, bucketId, memberIds);
   return json({ added, duplicates, needsEmail });
 }
