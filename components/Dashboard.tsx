@@ -638,14 +638,22 @@ function Compose({ toast, go }: any) {
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [menuIdx, setMenuIdx] = useState<number | null>(null);
   const [rewritingIdx, setRewritingIdx] = useState<number | null>(null);
+  const [rewritingKey, setRewritingKey] = useState<string | null>(null);
 
+  const draftKey = (e: any) => `${String(e?.email || "").toLowerCase()}|${String(e?.professor_name || "")}`;
   const patchEmail = (i: number, patch: any) => setPreview((p) => p.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
-  const removeEmail = (i: number) => { setPreview((p) => p.filter((_, idx) => idx !== i)); setEditIdx(null); if (rewritingIdx === i) setRewritingIdx(null); };
+  const patchEmailByKey = (key: string, patch: any) => setPreview((p) => p.map((e) => (draftKey(e) === key ? { ...e, ...patch } : e)));
+  const removeEmail = (i: number) => {
+    setPreview((p) => p.filter((_, idx) => idx !== i));
+    setEditIdx(null);
+    if (rewritingIdx === i) setRewritingIdx(null);
+  };
 
   const rewriteEmail = async (i: number) => {
     const e = preview[i];
-    if (!e || rewritingIdx !== null) return;
-    setRewritingIdx(i); setMenuIdx(null); setStatus("Rewriting…");
+    if (!e || rewritingKey !== null) return;
+    const key = draftKey(e);
+    setRewritingIdx(i); setRewritingKey(key); setMenuIdx(null); setStatus("Rewriting…");
     try {
       const j = await api("/api/compose/rewrite", {
         method: "POST",
@@ -662,7 +670,8 @@ function Compose({ toast, go }: any) {
           papers_used: e.papers_used || [],
         }),
       });
-      if (j.email) patchEmail(i, j.email);
+      // Patch by identity key — index may have shifted if another draft was deleted.
+      if (j.email) patchEmailByKey(key, j.email);
       setAiOff(j.ai_enabled === false);
       setStatus("Rewritten with new papers");
       toast?.("Email rewritten");
@@ -670,7 +679,7 @@ function Compose({ toast, go }: any) {
       setStatus("Error: " + err.message);
       toast?.("Rewrite failed: " + err.message);
     }
-    setRewritingIdx(null);
+    setRewritingIdx(null); setRewritingKey(null);
   };
 
   // Reload the dropdown lists (templates / buckets / professors / attachments).
@@ -818,17 +827,17 @@ function Compose({ toast, go }: any) {
                 <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                   <b>{e.professor_name || e.email || "(no recipient)"}</b>
                   <div className="row" style={{ gap: 8, alignItems: "center" }}>
-                    {rewritingIdx === i && <span className="mut tiny">Rewriting…</span>}
+                    {rewritingKey && draftKey(e) === rewritingKey && <span className="mut tiny">Rewriting…</span>}
                     {editIdx === i && <button className="btn sm" onClick={() => setEditIdx(null)}>Done</button>}
                     <div style={{ position: "relative" }}>
-                      <button className="kebab" aria-label="More actions" disabled={rewritingIdx === i} onClick={() => setMenuIdx(menuIdx === i ? null : i)}>⋮</button>
+                      <button className="kebab" aria-label="More actions" disabled={!!rewritingKey} onClick={() => setMenuIdx(menuIdx === i ? null : i)}>⋮</button>
                       {menuIdx === i && (
                         <>
                           <div className="menu-backdrop" onClick={() => setMenuIdx(null)} />
                           <div className="menu">
                             <button onClick={() => { setEditIdx(i); setMenuIdx(null); }}>Edit</button>
-                            {mode === "ai" && <button onClick={() => rewriteEmail(i)} disabled={rewritingIdx !== null}>Rewrite</button>}
-                            <button className="danger" onClick={() => { removeEmail(i); setMenuIdx(null); }}>Delete</button>
+                            {mode === "ai" && <button onClick={() => rewriteEmail(i)} disabled={rewritingKey !== null}>Rewrite</button>}
+                            <button className="danger" onClick={() => { removeEmail(i); setMenuIdx(null); }} disabled={!!rewritingKey}>Delete</button>
                           </div>
                         </>
                       )}
@@ -2020,6 +2029,7 @@ function FindProfessors({ toast }: any) {
   const [results, setResults] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [sel, setSel] = useState<Record<string, any>>({});
@@ -2066,7 +2076,7 @@ function FindProfessors({ toast }: any) {
         query, page: p, faculty_only: fo,
       }) });
       const rows = j.results || [];
-      setResults(rows); setTotal(j.total || 0);
+      setResults(rows); setTotal(j.total || 0); setHasMore(!!j.has_more);
       // Pre-fill emails we already have cached so they show inline right away.
       const seeded: Record<string, { loading?: boolean; email?: string | null }> = {};
       let withEmail = 0;
@@ -2275,7 +2285,7 @@ function FindProfessors({ toast }: any) {
         <div className="row" style={{ justifyContent: "center", marginTop: 8 }}>
           <button className="btn sm sec" disabled={page <= 1 || busy} onClick={() => search(page - 1)}>&larr; Prev</button>
           <span className="mut">Page {page}{total ? ` · ${total} total` : ""}</span>
-          <button className="btn sm sec" disabled={results.length < 25 || busy} onClick={() => search(page + 1)}>Next &rarr;</button>
+          <button className="btn sm sec" disabled={!hasMore || busy} onClick={() => search(page + 1)}>Next &rarr;</button>
         </div>
       )}
 

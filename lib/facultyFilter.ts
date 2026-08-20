@@ -66,10 +66,11 @@ export function classifyAffiliationTexts(texts: string[]): TitleSignal {
   let best: TitleSignal = "none";
   for (const raw of texts) {
     const s = classifyTitleText(raw);
+    // Student always wins immediately — never stored in `best`.
     if (s === "student") return "student";
-    if (s === "postdoc" && best !== "student") best = "postdoc";
-    if (s === "industry" && best === "none") best = "industry";
-    if (s === "faculty" && best !== "student" && best !== "postdoc") best = "faculty";
+    if (s === "postdoc") best = "postdoc";
+    else if (s === "industry" && best === "none") best = "industry";
+    else if (s === "faculty" && best !== "postdoc") best = "faculty";
   }
   return best;
 }

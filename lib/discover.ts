@@ -250,7 +250,12 @@ function filterAuthorsBySubfield(authors: any[], subfieldIds: string[]): any[] {
 }
 
 /** Search professors/researchers by country, university and field. */
-export async function searchAuthors(f: SearchFilters): Promise<{ results: AuthorHit[]; total: number; debug: { filter: string; search: string } }> {
+export async function searchAuthors(f: SearchFilters): Promise<{
+  results: AuthorHit[];
+  total: number;
+  has_more?: boolean;
+  debug: { filter: string; search: string };
+}> {
   const conceptIds = (f.conceptIds && f.conceptIds.length ? f.conceptIds : f.conceptId ? [f.conceptId] : []).filter(Boolean);
   const subfieldIds = (f.subfieldIds || []).filter(Boolean);
   const country = (f.country || "").toLowerCase();
@@ -340,10 +345,12 @@ export async function searchAuthors(f: SearchFilters): Promise<{ results: Author
   }
 
   // Country-only and/or name search: the authors index handles this well.
+  const perPage = Math.min(f.perPage || 25, 50);
+  const pageNum = Math.max(1, f.page || 1);
   const params: Record<string, string> = {
     sort: "cited_by_count:desc",
-    per_page: String(Math.min(f.perPage || 25, 50)),
-    page: String(f.page || 1),
+    per_page: String(perPage),
+    page: String(pageNum),
   };
   const filters: string[] = [];
   if (country) filters.push(`last_known_institutions.country_code:${country}`);
@@ -353,11 +360,16 @@ export async function searchAuthors(f: SearchFilters): Promise<{ results: Author
   }
   if (filters.length) params.filter = filters.join(",");
   if (f.query && f.query.trim()) params.search = f.query.trim();
-  if (!params.filter && !params.search) return { results: [], total: 0, debug: { filter: "", search: "" } };
+  if (!params.filter && !params.search) return { results: [], total: 0, has_more: false, debug: { filter: "", search: "" } };
   const data = await oaJson(oaUrl("/authors", params));
+  const rawPage = data.results || [];
+  const metaTotal = typeof data.meta?.count === "number" ? data.meta.count : rawPage.length;
   const accById: Record<string, AccSignal> = {};
-  const results = applyFacultyFilter(data.results || [], accById, facultyOnly);
-  return { results, total: data.meta?.count || results.length, debug: { filter: params.filter || "", search: params.search || "" } };
+  const results = applyFacultyFilter(rawPage, accById, facultyOnly);
+  // Faculty filter can shrink the page below perPage — still allow Next when
+  // OpenAlex has more pages (full raw page or meta total beyond this page).
+  const hasMore = rawPage.length >= perPage || metaTotal > pageNum * perPage;
+  return { results, total: metaTotal, has_more: hasMore, debug: { filter: params.filter || "", search: params.search || "" } };
 }
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;

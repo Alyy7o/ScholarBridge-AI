@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   const b = await req.json().catch(() => ({}));
   const facultyOnly = b.faculty_only !== false && b.facultyOnly !== false;
   try {
-    const { results, total, debug } = await searchAuthors({
+    const { results, total, has_more, debug } = await searchAuthors({
       country: String(b.country || "").trim() || undefined,
       institutionId: String(b.institutionId || "").trim() || undefined,
       conceptId: String(b.conceptId || "").trim() || undefined,
@@ -94,7 +94,7 @@ export async function POST(req: Request) {
       if (extra.length) (results as any[]).unshift(...extra);
     }
 
-    return json({ results, total, debug, faculty_only: facultyOnly });
+    return json({ results, total, has_more: !!has_more, debug, faculty_only: facultyOnly });
   } catch (e) {
     return err((e as Error).message || "Search failed", 502);
   }
