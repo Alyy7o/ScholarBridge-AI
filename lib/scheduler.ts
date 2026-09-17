@@ -45,7 +45,9 @@ function nextDates(days: string[], start: Date, weeks = 10): Date[] {
 export function generateSlots(n: number, cfg: ScheduleConfig): string[] {
   const tz = cfg.timezone || "UTC";
   const perSlot = Math.max(1, cfg.per_slot);
-  const stepMin = cfg.spread && perSlot > 1 ? Math.floor(60 / perSlot) : 0;
+  // When spread is on, space emails by the user-chosen gap (minutes). Falls back
+  // to 10 if missing/invalid. Off = every email at the exact slot time.
+  const stepMin = cfg.spread ? Math.max(1, Math.floor(Number(cfg.spread_gap_min) || 10)) : 0;
 
   // Preferred path: explicit calendar slots (date + hour + minute) chosen by the
   // user. Each slot holds up to `per_slot` emails, optionally spread by minutes.

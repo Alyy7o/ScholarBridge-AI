@@ -135,9 +135,11 @@ td{padding:10px 8px;border-bottom:1px solid var(--line);font-size:13px;vertical-
 .rte-sep{width:1px;height:18px;background:var(--line);margin:0 2px}
 .rte-area{min-height:180px;max-height:420px;overflow:auto;padding:12px 14px;font-size:14px;line-height:1.6;color:var(--ink);outline:none}
 .rte-area:empty:before{content:"Write the email…";color:var(--mut)}
+.rte-area p{margin:0} /* Word imports / contentEditable often wrap each line in <p> */
 .rte-area ul{margin:0 0 10px;padding-left:22px}
 .email-html{margin-top:6px;font-size:14px;line-height:1.6;color:var(--ink)}
-.email-html p{margin:0 0 10px}.email-html ul{padding-left:22px;margin:0 0 10px}
+.email-html p{margin:0} /* tight lines; blank lines come from <br><br> in imports */
+.email-html ul{padding-left:22px;margin:0 0 10px}
 .chip{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer}
 .chip:hover{background:var(--field)}
 .chip.on{background:linear-gradient(135deg,var(--acc),var(--acc2));border-color:transparent;color:var(--on-acc)}

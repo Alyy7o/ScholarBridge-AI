@@ -119,11 +119,14 @@ function sanitizeHtml(s: string): string {
 
 function toHtml(text: string): string {
   const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const paras = asciiClean(text)
+  // Use <br> between lines and only a blank line for true paragraph breaks —
+  // avoid per-line <p margin> gaps (Word-style plain extracts used to look double-spaced).
+  const inner = asciiClean(text)
+    .replace(/\n{3,}/g, "\n\n")
     .split(/\n{2,}/)
-    .map((p) => `<p style="margin:0 0 14px">${esc(p).replace(/\n/g, "<br>")}</p>`)
-    .join("");
-  return `<div style="${WRAP}">${paras}</div>`;
+    .map((p) => esc(p).replace(/\n/g, "<br>"))
+    .join("<br><br>");
+  return `<div style="${WRAP}">${inner}</div>`;
 }
 
 /** Render the body for the email: HTML bodies are sanitized and kept as markup;

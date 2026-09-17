@@ -368,7 +368,7 @@ export default function Dashboard() {
           {Object.entries(TABS).map(([id, Comp]) =>
             visited.has(id) && ((id !== "emails" && id !== "users") || isAdmin) ? (
               <div key={id} style={{ display: id === section ? "block" : "none" }}>
-                <Comp {...props} />
+                <Comp {...props} active={id === section} />
               </div>
             ) : null,
           )}
@@ -611,7 +611,7 @@ function MiniCalendar({ selected, onToggle }: { selected: Set<string>; onToggle:
 }
 
 /* ---------- Compose ---------- */
-function Compose({ toast, go }: any) {
+function Compose({ toast, go, active }: any) {
   const [mode, setMode] = useState("ai");
   const [tpls, setTpls] = useState<any[]>([]);
   const [profs, setProfs] = useState<any[]>([]);
@@ -627,6 +627,7 @@ function Compose({ toast, go }: any) {
   const [perDateTimes, setPerDateTimes] = useState<Record<string, { hour: number; minute: number }>>({});
   const [perSlot, setPerSlot] = useState<number | "">(5);
   const [spread, setSpread] = useState(true);
+  const [spreadGap, setSpreadGap] = useState<number | "">(10);
   const [tz, setTz] = useState(() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; } });
   const toggleDate = (k: string) => setDates((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const [pickAtt, setPickAtt] = useState<string[]>([]);
@@ -689,8 +690,24 @@ function Compose({ toast, go }: any) {
     api("/api/attachments").then(setAtts).catch(() => {});
     api("/api/buckets").then(setBuckets).catch(() => {});
   };
+  const loadAttachments = () => {
+    api("/api/attachments").then((list) => {
+      setAtts(list);
+      // Drop picks that were deleted elsewhere
+      setPickAtt((prev) => prev.filter((id) => list.some((a: any) => a.id === id)));
+    }).catch(() => {});
+  };
   useEffect(() => { loadLists(); }, []);
-  // Auto-refresh when returning to the tab, so newly-created templates/buckets show up.
+  // Keep-alive tabs: refresh attachments whenever Compose becomes visible so
+  // uploads from the Attachments tab show up without a full page reload.
+  useEffect(() => { if (active) loadAttachments(); }, [active]);
+  // Also refresh on a same-tab custom event (fired right after upload/delete).
+  useEffect(() => {
+    const onChanged = () => loadAttachments();
+    window.addEventListener("sb:attachments-changed", onChanged);
+    return () => window.removeEventListener("sb:attachments-changed", onChanged);
+  }, []);
+  // Auto-refresh when returning to the browser tab.
   useEffect(() => {
     const onFocus = () => loadLists();
     window.addEventListener("focus", onFocus);
@@ -721,7 +738,8 @@ function Compose({ toast, go }: any) {
     const slots = ds.map((d) => { const t = sameTime ? oneTime : (perDateTimes[d] || oneTime); return { date: d, hour: t.hour, minute: t.minute }; });
     if (slots.length * slotCount < preview.length) { setStatus(`Only ${slots.length * slotCount} slot(s) for ${preview.length} emails — add dates or raise per-slot.`); return; }
     setBusy(true); setStatus("");
-    const schedule = { slots, per_slot: slotCount, spread, timezone: tz };
+    const gap = typeof spreadGap === "number" && spreadGap > 0 ? spreadGap : 10;
+    const schedule = { slots, per_slot: slotCount, spread, spread_gap_min: gap, timezone: tz };
     try { const j = await api("/api/schedule/commit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ emails: preview, schedule, attachment_ids: pickAtt }) }); toast(`Scheduled ${j.scheduled}`); setPreview([]); go("history"); }
     catch (e: any) { setStatus("Error: " + e.message); } setBusy(false);
   };
@@ -852,7 +870,7 @@ function Compose({ toast, go }: any) {
                     <label style={{ marginTop: 10 }}>Subject</label>
                     <input value={e.subject || ""} onChange={(ev) => patchEmail(i, { subject: ev.target.value })} />
                     <label style={{ marginTop: 10 }}>Body</label>
-                    <RichText value={e.body || ""} onChange={(html) => patchEmail(i, { body: html })} />
+                    <RichText key={`rte-${i}`} value={e.body || ""} onChange={(html) => patchEmail(i, { body: html })} />
                   </div>
                 ) : (
                   <>
@@ -921,7 +939,33 @@ function Compose({ toast, go }: any) {
                   </div>
                   <div><label>Timezone</label><select value={tz} onChange={(e) => setTz(e.target.value)}>{TZ_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>
                 </div>
-                <div style={{ marginTop: 16 }}><Toggle checked={spread} onChange={setSpread} label="Spread within the hour (:00, :15…) — off = all at the exact time" /></div>
+                <div style={{ marginTop: 16 }}>
+                  <Toggle checked={spread} onChange={setSpread} label="Spread emails by time gap — off = all at the exact time" />
+                  {spread && (
+                    <div style={{ marginTop: 10 }}>
+                      <label>Gap between emails (minutes)</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={spreadGap}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "") setSpreadGap("");
+                          else {
+                            const n = parseInt(v, 10);
+                            setSpreadGap(Number.isFinite(n) ? n : "");
+                          }
+                        }}
+                        onBlur={() => {
+                          if (spreadGap === "" || (typeof spreadGap === "number" && spreadGap < 1)) setSpreadGap(10);
+                        }}
+                      />
+                      <div className="mut tiny" style={{ marginTop: 6 }}>
+                        Example: start 6:00, gap 10 → 6:00, 6:10, 6:20…
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <label style={{ marginTop: 16 }}>Attach (optional)</label>
                 {atts.length ? atts.map((a) => (
                   <div key={a.id} style={{ marginBottom: 8 }}><Toggle checked={pickAtt.includes(a.id)} onChange={(v) => setPickAtt(v ? [...pickAtt, a.id] : pickAtt.filter((x) => x !== a.id))} label={<>{a.filename} <span className="mut">({a.kind})</span></>} /></div>
@@ -1498,10 +1542,18 @@ function Attachments({ toast }: any) {
   const [list, setList] = useState<any[]>([]);
   const [kind, setKind] = useState("cv"); const [file, setFile] = useState<File | null>(null); const [st, setSt] = useState("");
   const [loading, setLoading] = useState(true);
+  const notifyCompose = () => {
+    try { window.dispatchEvent(new Event("sb:attachments-changed")); } catch { /* ignore */ }
+  };
   const load = () => api("/api/attachments").then((x) => { setList(x); setLoading(false); });
   useEffect(() => { load(); }, []);
-  const up = async () => { if (!file) { setSt("Choose a file"); return; } const fd = new FormData(); fd.append("kind", kind); fd.append("file", file); await api("/api/attachments", { method: "POST", body: fd }); setSt("Uploaded"); load(); };
-  const del = async (id: string) => { await api("/api/attachments/" + id, { method: "DELETE" }); load(); };
+  const up = async () => {
+    if (!file) { setSt("Choose a file"); return; }
+    const fd = new FormData(); fd.append("kind", kind); fd.append("file", file);
+    await api("/api/attachments", { method: "POST", body: fd });
+    setSt("Uploaded"); setFile(null); await load(); notifyCompose(); toast?.("Attachment uploaded");
+  };
+  const del = async (id: string) => { await api("/api/attachments/" + id, { method: "DELETE" }); await load(); notifyCompose(); };
   return (
     <>
       <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>

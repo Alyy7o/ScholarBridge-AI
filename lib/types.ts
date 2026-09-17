@@ -25,6 +25,8 @@ export interface ScheduleConfig {
   per_slot: number;
   timezone: string;
   spread: boolean;
+  /** Minutes between emails when `spread` is on (e.g. 10 → 6:00, 6:10, 6:20). */
+  spread_gap_min?: number;
   start_date?: string | null;
   slots?: ScheduleSlot[]; // explicit calendar slots (preferred over days/hours)
 }
