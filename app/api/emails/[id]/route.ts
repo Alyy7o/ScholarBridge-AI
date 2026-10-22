@@ -32,14 +32,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (typeof body.professor_name === "string") patch.professor_name = body.professor_name.trim();
 
   if (Array.isArray(body.attachment_ids)) {
-    const ids = body.attachment_ids
+    const ids: string[] = (body.attachment_ids as unknown[])
       .map((x: unknown) => String(x ?? "").trim())
-      .filter(Boolean);
+      .filter((id: string) => id.length > 0);
     // Only allow attachments owned by this user
     if (ids.length) {
       const { data: owned } = await sb.from("attachments").select("id").in("id", ids);
       const allowed = new Set((owned || []).map((a: { id: string }) => a.id));
-      patch.attachment_ids = ids.filter((id) => allowed.has(id));
+      patch.attachment_ids = ids.filter((id: string) => allowed.has(id));
     } else {
       patch.attachment_ids = [];
     }
