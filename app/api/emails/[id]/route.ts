@@ -33,7 +33,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   if (Array.isArray(body.attachment_ids)) {
     const ids = body.attachment_ids
-      .map((x) => String(x || "").trim())
+      .map((x: unknown) => String(x ?? "").trim())
       .filter(Boolean);
     // Only allow attachments owned by this user
     if (ids.length) {
