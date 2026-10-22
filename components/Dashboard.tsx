@@ -529,7 +529,17 @@ const TZ_OPTIONS: { value: string; label: string }[] = (() => {
     .map(({ value, label }) => ({ value, label }));
 })();
 
-function TimePicker({ value, onChange }: { value: { hour: number; minute: number }; onChange: (v: { hour: number; minute: number }) => void }) {
+function TimePicker({
+  value,
+  onChange,
+  fullWidth = false,
+  center = false,
+}: {
+  value: { hour: number; minute: number };
+  onChange: (v: { hour: number; minute: number }) => void;
+  fullWidth?: boolean;
+  center?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const hRef = useRef<HTMLButtonElement | null>(null);
   const mRef = useRef<HTMLButtonElement | null>(null);
@@ -547,15 +557,19 @@ function TimePicker({ value, onChange }: { value: { hour: number; minute: number
   const mins = Array.from({ length: 60 }, (_, i) => i);
   const label = `${String(h12).padStart(2, "0")}:${String(value.minute).padStart(2, "0")} ${period}`;
   return (
-    <div style={{ position: "relative", display: "inline-block" }}>
-      <button type="button" className="tpf-field" onClick={() => setOpen((o) => !o)}>
+    <div style={{ position: "relative", display: fullWidth ? "block" : "inline-block", width: fullWidth ? "100%" : undefined }}>
+      <button
+        type="button"
+        className={"tpf-field" + (fullWidth ? " tpf-full" : "") + (center ? " tpf-center" : "")}
+        onClick={() => setOpen((o) => !o)}
+      >
         <span>{label}</span>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
       </button>
       {open && (
         <>
           <button type="button" aria-hidden className="tpf-backdrop" onClick={() => setOpen(false)} />
-          <div className="tp" style={{ position: "absolute", zIndex: 30, marginTop: 6, boxShadow: "0 12px 30px rgba(0,0,0,.45)" }}>
+          <div className="tp" style={{ position: "absolute", zIndex: 30, marginTop: 6, left: center && fullWidth ? "50%" : undefined, transform: center && fullWidth ? "translateX(-50%)" : undefined, boxShadow: "0 12px 30px rgba(0,0,0,.45)" }}>
             <div className="tp-col">
               {hours.map((n) => <button key={n} ref={n === h12 ? hRef : undefined} type="button" onClick={() => setH12(n)} className={"tp-item" + (n === h12 ? " on" : "")}>{String(n).padStart(2, "0")}</button>)}
             </div>
@@ -1617,6 +1631,154 @@ function RowMenu({ items, dropUp = false }: { items: Array<{ label: string; onCl
 
 const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+const EDITABLE_EMAIL_STATUSES = new Set(["draft", "scheduled", "paused", "failed", "cancelled"]);
+
+/** Edit content + schedule + attachments for a queued email (any status except sent). */
+function EditEmailModal({ email, onClose, onDone }: { email: any; onClose: () => void; onDone: () => void }) {
+  const initWhen = (() => {
+    const fromRow = email.send_at ? new Date(email.send_at) : null;
+    if (fromRow && !isNaN(fromRow.getTime()) && fromRow.getTime() > Date.now() - 60_000) return fromRow;
+    return new Date(Date.now() + 3600_000);
+  })();
+  const [professorName, setProfessorName] = useState(String(email.professor_name || ""));
+  const [to, setTo] = useState(String(email.email || ""));
+  const [subject, setSubject] = useState(String(email.subject || ""));
+  const [body, setBody] = useState(String(email.body || ""));
+  const [day, setDay] = useState<string>(() => isoDay(initWhen));
+  const [time, setTime] = useState<{ hour: number; minute: number }>(() => ({
+    hour: initWhen.getHours(),
+    minute: initWhen.getMinutes(),
+  }));
+  const [atts, setAtts] = useState<any[]>([]);
+  const [pickAtt, setPickAtt] = useState<string[]>(() =>
+    Array.isArray(email.attachment_ids) ? email.attachment_ids.map(String) : [],
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api("/api/attachments")
+      .then((list) => {
+        setAtts(list || []);
+        // Keep picks that still exist; keep orphaned ids only if still selected from row
+        const ids = new Set((list || []).map((a: any) => a.id));
+        setPickAtt((prev) => prev.filter((id) => ids.has(id)));
+      })
+      .catch(() => {});
+  }, []);
+
+  const save = async () => {
+    setError("");
+    if (!to.trim().includes("@")) { setError("Enter a valid recipient email."); return; }
+    if (!subject.trim()) { setError("Subject is required."); return; }
+    const [y, m, d] = day.split("-").map(Number);
+    const when = new Date(y, m - 1, d, time.hour, time.minute, 0, 0);
+    if (isNaN(when.getTime())) { setError("Pick a valid date and time."); return; }
+    if (when.getTime() < Date.now() - 60_000) { setError("Pick a time in the future."); return; }
+    setBusy(true);
+    try {
+      await api(`/api/emails/${email.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          professor_name: professorName,
+          email: to.trim(),
+          subject: subject.trim(),
+          body,
+          send_at: when.toISOString(),
+          attachment_ids: pickAtt,
+        }),
+      });
+      onDone();
+    } catch (e: any) {
+      setError(e?.message || "Could not save.");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div className="card" onClick={(e) => e.stopPropagation()} style={{ width: "80vw", maxWidth: "80vw", maxHeight: "92vh", overflow: "auto", padding: 22 }}>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+          <div>
+            <b style={{ fontSize: 16 }}>Update email</b>
+            <div className="mut tiny" style={{ marginTop: 2 }}>
+              Current status <span className={`pill ${email.status}`} style={{ marginLeft: 4 }}>{email.status}</span>
+              {email.send_at ? <> · was {fmt(email.send_at)}</> : null}
+              {["cancelled", "failed", "draft"].includes(email.status) ? (
+                <span> · saving with a time will re-queue as scheduled</span>
+              ) : null}
+            </div>
+          </div>
+          <button type="button" className="btn sm sec" onClick={onClose} disabled={busy}>Close</button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.4fr) minmax(300px, 0.85fr)", gap: 40, marginTop: 18, alignItems: "start" }} className="edit-email-grid">
+          <div>
+            <label>Recipient name</label>
+            <input value={professorName} onChange={(e) => setProfessorName(e.target.value)} placeholder="Professor name" />
+
+            <label style={{ marginTop: 10 }}>Recipient email</label>
+            <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="prof@uni.edu" />
+
+            <label style={{ marginTop: 10 }}>Subject</label>
+            <input value={subject} onChange={(e) => setSubject(e.target.value)} />
+
+            <label style={{ marginTop: 10 }}>Body</label>
+            <RichText key={`edit-${email.id}`} value={body} onChange={setBody} />
+          </div>
+
+          <div>
+            <b style={{ fontSize: 13, display: "block", marginBottom: 10 }}>Schedule</b>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={{ display: "block", marginBottom: 6 }}>Time</label>
+                <TimePicker value={time} onChange={setTime} fullWidth center />
+              </div>
+              <div>
+                <label style={{ display: "block", marginBottom: 6 }}>Date</label>
+                <MiniCalendar selected={new Set([day])} onToggle={(k) => setDay(k)} />
+              </div>
+              <div className="mut tiny" style={{ textAlign: "center" }}>
+                Sends at {day} · {String(time.hour).padStart(2, "0")}:{String(time.minute).padStart(2, "0")} (your local time)
+              </div>
+            </div>
+
+            <div style={{ marginTop: 22, paddingTop: 16, borderTop: "1px solid var(--line)" }}>
+              <b style={{ fontSize: 13, display: "block", marginBottom: 10 }}>Attachments</b>
+              {atts.length ? (
+                atts.map((a) => (
+                  <div key={a.id} style={{ marginBottom: 8 }}>
+                    <Toggle
+                      checked={pickAtt.includes(a.id)}
+                      onChange={(v) => setPickAtt(v ? [...pickAtt, a.id] : pickAtt.filter((x) => x !== a.id))}
+                      label={<>{a.filename} <span className="mut">({a.kind})</span></>}
+                    />
+                  </div>
+                ))
+              ) : (
+                <div className="mut tiny">No attachments yet. Upload under Attachments, then reopen Update.</div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <style>{`
+          @media (max-width: 900px) {
+            .edit-email-grid { grid-template-columns: 1fr !important; gap: 22px !important; }
+          }
+        `}</style>
+
+        {error && <div className="tiny" style={{ color: "var(--bad)", marginTop: 12 }}>{error}</div>}
+        <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+          <button className="btn sm sec" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn sm" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save changes"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Themed modal (in-app calendar + time picker) to re-queue one or many
  *  cancelled/failed emails to a new time. `emails` is always an array. */
 function RescheduleModal({ emails, onClose, onDone }: { emails: any[]; onClose: () => void; onDone: () => void }) {
@@ -1677,6 +1839,7 @@ function History({ toast }: any) {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [reList, setReList] = useState<any[] | null>(null);
+  const [editEmail, setEditEmail] = useState<any | null>(null);
   const [view, setView] = useState<"list" | "calendar">("list");
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [dayKey, setDayKey] = useState<string | null>(null);
@@ -1735,11 +1898,13 @@ function History({ toast }: any) {
 
   const emailMenuItems = (e: any) => {
     const items: Array<{ label: string; onClick: () => void; danger?: boolean }> = [];
+    if (EDITABLE_EMAIL_STATUSES.has(e.status)) {
+      items.push({ label: "Update", onClick: () => setEditEmail(e) });
+    }
     if (e.status === "scheduled") items.push({ label: "Pause", onClick: () => act(e.id, "pause") });
     if (e.status === "paused") items.push({ label: "Resume", onClick: () => act(e.id, "resume") });
     if (["scheduled", "paused", "draft"].includes(e.status)) items.push({ label: "Send now", onClick: () => act(e.id, "send-now") });
     if (["scheduled", "paused"].includes(e.status)) items.push({ label: "Cancel", onClick: () => act(e.id, "cancel") });
-    if (["cancelled", "failed"].includes(e.status)) items.push({ label: "Reschedule", onClick: () => setReList([e]) });
     items.push({ label: "Delete", onClick: () => del(e.id), danger: true });
     return items;
   };
@@ -1882,6 +2047,13 @@ function History({ toast }: any) {
       ) : <div className="mut">{query ? "No emails match your search." : "Nothing here."}</div>}</div>
       )}
       {reList && <RescheduleModal emails={reList} onClose={() => setReList(null)} onDone={() => { setReList(null); toast("rescheduled"); load(); }} />}
+      {editEmail && (
+        <EditEmailModal
+          email={editEmail}
+          onClose={() => setEditEmail(null)}
+          onDone={() => { setEditEmail(null); toast("Email updated & scheduled"); load(); }}
+        />
+      )}
     </>
   );
 }
