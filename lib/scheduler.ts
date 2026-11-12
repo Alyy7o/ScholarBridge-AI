@@ -55,8 +55,10 @@ export function generateSlots(n: number, cfg: ScheduleConfig): string[] {
     const out: string[] = [];
     for (const sl of cfg.slots) {
       const [y, m, d] = String(sl.date).split("-").map(Number);
-      const hh = Number(sl.hour) || 0;
-      const mm = Number(sl.minute) || 0;
+      if (![y, m, d].every((x) => Number.isFinite(x))) continue;
+      // Use Number.isFinite so hour/minute 0 are preserved (|| would also work, but be explicit)
+      const hh = Number.isFinite(Number(sl.hour)) ? Number(sl.hour) : 0;
+      const mm = Number.isFinite(Number(sl.minute)) ? Number(sl.minute) : 0;
       for (let i = 0; i < perSlot; i++) {
         out.push(zonedToUtc(y, m, d, hh, mm + i * stepMin, tz).toISOString());
         if (out.length >= n) return out;

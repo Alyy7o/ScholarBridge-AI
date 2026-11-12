@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import BrandLogo from "@/components/BrandLogo";
+import { generateSlots } from "@/lib/scheduler";
 
 async function api(path: string, opts: RequestInit = {}) {
   const r = await fetch(path, opts);
@@ -1657,21 +1658,28 @@ function EditEmailModal({ email, onClose, onDone }: { email: any; onClose: () =>
   const [error, setError] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
     api("/api/attachments")
       .then((list) => {
-        setAtts(list || []);
-        // Keep picks that still exist; keep orphaned ids only if still selected from row
-        const ids = new Set((list || []).map((a: any) => a.id));
+        if (cancelled) return;
+        const rows = Array.isArray(list) ? list : [];
+        setAtts(rows);
+        // Drop picks whose files were deleted; keep current selection otherwise
+        const ids = new Set(rows.map((a: any) => String(a.id)));
         setPickAtt((prev) => prev.filter((id) => ids.has(id)));
       })
-      .catch(() => {});
+      .catch(() => { /* keep existing pickAtt if list fails to load */ });
+    return () => { cancelled = true; };
   }, []);
 
   const save = async () => {
     setError("");
     if (!to.trim().includes("@")) { setError("Enter a valid recipient email."); return; }
     if (!subject.trim()) { setError("Subject is required."); return; }
+    if (!day) { setError("Pick a send date."); return; }
+    // Build send time in the browser's local zone (matches the footer hint)
     const [y, m, d] = day.split("-").map(Number);
+    if (![y, m, d].every((n) => Number.isFinite(n))) { setError("Pick a valid date."); return; }
     const when = new Date(y, m - 1, d, time.hour, time.minute, 0, 0);
     if (isNaN(when.getTime())) { setError("Pick a valid date and time."); return; }
     if (when.getTime() < Date.now() - 60_000) { setError("Pick a time in the future."); return; }
@@ -1779,51 +1787,241 @@ function EditEmailModal({ email, onClose, onDone }: { email: any; onClose: () =>
   );
 }
 
-/** Themed modal (in-app calendar + time picker) to re-queue one or many
- *  cancelled/failed emails to a new time. `emails` is always an array. */
-function RescheduleModal({ emails, onClose, onDone }: { emails: any[]; onClose: () => void; onDone: () => void }) {
+/** Re-queue cancelled/failed emails with the same multi-date / spread options as Compose. */
+function RescheduleModal({
+  emails,
+  onClose,
+  onDone,
+}: {
+  emails: any[];
+  onClose: () => void;
+  onDone: (msg?: string) => void;
+}) {
   const init = new Date(Date.now() + 3600_000);
-  const [day, setDay] = useState<string>(() => isoDay(init));
-  const [time, setTime] = useState<{ hour: number; minute: number }>(() => ({ hour: init.getHours(), minute: init.getMinutes() }));
+  const nEmails = emails.length;
+  const [dates, setDates] = useState<Set<string>>(() => new Set([isoDay(init)]));
+  const [sameTime, setSameTime] = useState(true);
+  const [oneTime, setOneTime] = useState(() => ({ hour: init.getHours(), minute: init.getMinutes() }));
+  const [perDateTimes, setPerDateTimes] = useState<Record<string, { hour: number; minute: number }>>({});
+  // Default per-slot to email count so one date can hold the whole batch (Compose-like capacity).
+  const [perSlot, setPerSlot] = useState<number | "">(Math.max(1, nEmails));
+  const [spread, setSpread] = useState(true);
+  const [spreadGap, setSpreadGap] = useState<number | "">(10);
+  const [tz, setTz] = useState(() => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; }
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const bulk = emails.length > 1;
+
+  const toggleDate = (k: string) => setDates((s) => {
+    const n = new Set(s);
+    if (n.has(k)) {
+      // Keep at least one date selected so capacity never silently drops to 0 mid-edit
+      if (n.size <= 1) return n;
+      n.delete(k);
+    } else {
+      n.add(k);
+    }
+    return n;
+  });
+
+  const slotCount = typeof perSlot === "number" && perSlot > 0 ? perSlot : 1;
+  const dateCount = dates.size;
+  const capacity = dateCount * slotCount;
+
   const submit = async () => {
     setError("");
-    const [y, m, d] = day.split("-").map(Number);
-    const when = new Date(y, m - 1, d, time.hour, time.minute, 0, 0);
-    if (isNaN(when.getTime())) { setError("Pick a valid date and time."); return; }
-    if (when.getTime() < Date.now() - 60_000) { setError("Pick a time in the future."); return; }
+    if (!nEmails) { setError("No emails selected."); return; }
+    const ds = [...dates].sort();
+    if (!ds.length) { setError("Pick at least one date."); return; }
+    if (capacity < nEmails) {
+      setError(`Only ${capacity} slot(s) for ${nEmails} emails — add dates or raise per-slot.`);
+      return;
+    }
+    const slots = ds.map((d) => {
+      const t = sameTime ? oneTime : (perDateTimes[d] || oneTime);
+      return { date: d, hour: t.hour, minute: t.minute };
+    });
+    const gap = typeof spreadGap === "number" && spreadGap > 0 ? spreadGap : 10;
+    const times = generateSlots(nEmails, {
+      slots,
+      per_slot: slotCount,
+      spread,
+      spread_gap_min: gap,
+      timezone: tz,
+    });
+    if (times.length < nEmails) {
+      setError("Not enough schedule slots generated. Add dates or raise per-slot.");
+      return;
+    }
+    // Earliest slot must be in the future (slots are ascending within/across dates)
+    const floor = Date.now() - 60_000;
+    if (times.some((t) => new Date(t).getTime() < floor)) {
+      setError("Pick times in the future.");
+      return;
+    }
     setBusy(true);
+    let ok = 0;
+    const failures: string[] = [];
     try {
-      for (const e of emails) {
-        await api(`/api/emails/${e.id}/reschedule`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ send_at: when.toISOString() }),
-        });
+      for (let i = 0; i < nEmails; i++) {
+        try {
+          await api(`/api/emails/${emails[i].id}/reschedule`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ send_at: times[i] }),
+          });
+          ok += 1;
+        } catch (e: any) {
+          const who = emails[i]?.professor_name || emails[i]?.email || emails[i]?.id;
+          failures.push(`${who}: ${e?.message || "failed"}`);
+        }
+      }
+      if (failures.length && ok === 0) {
+        setError(failures[0] || "Could not reschedule.");
+        setBusy(false);
+        return;
+      }
+      if (failures.length) {
+        // Partial success — still close so the list refreshes, but surface a toast via onDone message
+        onDone(`${ok} rescheduled, ${failures.length} failed`);
+        return;
       }
       onDone();
-    } catch (e: any) { setError(e?.message || "Could not reschedule."); setBusy(false); }
+    } catch (e: any) {
+      setError(e?.message || "Could not reschedule.");
+      setBusy(false);
+    }
   };
+
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div className="card" onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 520, padding: 18 }}>
-        <b style={{ fontSize: 15 }}>Reschedule {bulk ? `${emails.length} emails` : "email"}</b>
-        <div className="mut tiny" style={{ marginTop: 2 }}>{bulk ? "Applies the same new time to all selected." : `To ${emails[0]?.professor_name || emails[0]?.email}`}</div>
-        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "flex-start", marginTop: 14 }}>
-          <div style={{ flex: "1 1 260px", minWidth: 240 }}>
-            <label style={{ display: "block", marginBottom: 6 }}>Date</label>
-            <MiniCalendar selected={new Set([day])} onToggle={(k) => setDay(k)} />
-          </div>
+      <div className="card" onClick={(e) => e.stopPropagation()} style={{ width: "80vw", maxWidth: "80vw", maxHeight: "92vh", overflow: "auto", padding: 22 }}>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
           <div>
-            <label style={{ display: "block", marginBottom: 6 }}>Time</label>
-            <TimePicker value={time} onChange={setTime} />
+            <b style={{ fontSize: 16 }}>Reschedule {emails.length} email{emails.length === 1 ? "" : "s"}</b>
+            <div className="mut tiny" style={{ marginTop: 2 }}>
+              Same options as Compose — pick dates, times, and spread. {emails.length} email(s) · {capacity} slot(s) available.
+            </div>
+          </div>
+          <button type="button" className="btn sm sec" onClick={onClose} disabled={busy}>Close</button>
+        </div>
+
+        <div className="resched-grid" style={{ display: "grid", gridTemplateColumns: "minmax(320px, 0.95fr) minmax(340px, 1.05fr)", gap: 48, marginTop: 20, alignItems: "start" }}>
+          {/* Left — calendar only */}
+          <div style={{ minWidth: 0 }}>
+            <label style={{ display: "block", marginBottom: 8 }}>Send dates</label>
+            <MiniCalendar selected={dates} onToggle={toggleDate} />
+            <div className="mut tiny" style={{ marginTop: 10 }}>
+              {dateCount} date{dateCount === 1 ? "" : "s"} selected · {capacity} slot(s) for {emails.length} email(s)
+            </div>
+          </div>
+
+          {/* Right — all other options, stacked */}
+          <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 18 }}>
+            <div>
+              <Toggle checked={sameTime} onChange={setSameTime} label="Same time for all dates" />
+            </div>
+
+            <div>
+              {sameTime ? (
+                <>
+                  <label style={{ display: "block", marginBottom: 6 }}>Time</label>
+                  <TimePicker value={oneTime} onChange={setOneTime} fullWidth center />
+                </>
+              ) : (
+                <>
+                  <label style={{ display: "block", marginBottom: 6 }}>Time per date</label>
+                  {dateCount === 0 ? (
+                    <div className="mut tiny">Select dates on the calendar first.</div>
+                  ) : (
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {[...dates].sort().map((d) => (
+                        <div key={d} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: "var(--field)", border: "1px solid var(--line)", borderRadius: 8, padding: "9px 14px" }}>
+                          <span style={{ fontWeight: 700, fontSize: 13 }}>{new Date(d + "T00:00:00").toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" })}</span>
+                          <TimePicker value={perDateTimes[d] || oneTime} onChange={(v) => setPerDateTimes((p) => ({ ...p, [d]: v }))} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <div>
+                <label style={{ display: "block", marginBottom: 6 }}>Per slot</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={perSlot}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "") setPerSlot("");
+                    else {
+                      const n = parseInt(v, 10);
+                      setPerSlot(Number.isFinite(n) ? n : "");
+                    }
+                  }}
+                  onBlur={() => {
+                    if (perSlot === "" || (typeof perSlot === "number" && perSlot < 1)) setPerSlot(1);
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", marginBottom: 6 }}>Timezone</label>
+                <select value={tz} onChange={(e) => setTz(e.target.value)} style={{ width: "100%" }}>
+                  {TZ_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <Toggle checked={spread} onChange={setSpread} label="Spread emails by time gap — off = all at the exact slot time" />
+              {spread && (
+                <div style={{ marginTop: 12 }}>
+                  <label style={{ display: "block", marginBottom: 6 }}>Gap between emails (minutes)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={spreadGap}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "") setSpreadGap("");
+                      else {
+                        const n = parseInt(v, 10);
+                        setSpreadGap(Number.isFinite(n) ? n : "");
+                      }
+                    }}
+                    onBlur={() => {
+                      if (spreadGap === "" || (typeof spreadGap === "number" && spreadGap < 1)) setSpreadGap(10);
+                    }}
+                  />
+                  <div className="mut tiny" style={{ marginTop: 6 }}>
+                    Example: start 6:00, gap 10 → 6:00, 6:10, 6:20…
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mut tiny">
+              Emails are placed in order across your dates and slots — just like Compose scheduling.
+            </div>
           </div>
         </div>
-        {error && <div className="tiny" style={{ color: "var(--bad)", marginTop: 10 }}>{error}</div>}
+
+        <style>{`
+          @media (max-width: 900px) {
+            .resched-grid { grid-template-columns: 1fr !important; gap: 22px !important; }
+          }
+        `}</style>
+
+        {error && <div className="tiny" style={{ color: "var(--bad)", marginTop: 12 }}>{error}</div>}
         <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
           <button className="btn sm sec" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="btn sm" onClick={submit} disabled={busy}>{busy ? "Scheduling…" : "Reschedule"}</button>
+          <button className="btn sm" onClick={submit} disabled={busy}>
+            {busy ? "Scheduling…" : `Reschedule ${emails.length}`}
+          </button>
         </div>
       </div>
     </div>
@@ -2046,7 +2244,13 @@ function History({ toast }: any) {
         </>
       ) : <div className="mut">{query ? "No emails match your search." : "Nothing here."}</div>}</div>
       )}
-      {reList && <RescheduleModal emails={reList} onClose={() => setReList(null)} onDone={() => { setReList(null); toast("rescheduled"); load(); }} />}
+      {reList && (
+        <RescheduleModal
+          emails={reList}
+          onClose={() => setReList(null)}
+          onDone={(msg) => { setReList(null); toast(msg || "Rescheduled"); load(); }}
+        />
+      )}
       {editEmail && (
         <EditEmailModal
           email={editEmail}
